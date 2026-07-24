@@ -1,7 +1,7 @@
 // Copyright (c) 2026, Quark Cyber Systems FZC and contributors
 // For license information, please see license.txt
 
-frappe.ui.form.on("Helpdesk Support Settings", {
+frappe.ui.form.on("HDS Support Settings", {
 	refresh(frm) {
 		if (frm.doc.client_id) {
 			frm.dashboard.add_indicator(

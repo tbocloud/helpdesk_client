@@ -22,7 +22,7 @@
 	"modified": "2026-03-28 12:00:00.000000",
 	"modified_by": "Administrator",
 	"module": "QCS Support Client",
-	"name": "hds_blocked_doctype",
+	"name": "HDS Blocked DocType",
 	"owner": "Administrator",
 	"permissions": [],
 	"sort_field": "modified",

@@ -11,7 +11,7 @@ from frappe.www.login import _generate_temporary_login_link
 def generate_impersonation_url(user):
     frappe.only_for("System Manager")
 
-    if not frappe.db.get_single_value("Helpdesk Support Settings", "enable_user_impersonation"):
+    if not frappe.db.get_single_value("HDS Support Settings", "enable_user_impersonation"):
         frappe.throw(_("User Impersonation is disabled"))
     if user == "Administrator":
         frappe.throw(_("You cannot impersonate Administrator"))

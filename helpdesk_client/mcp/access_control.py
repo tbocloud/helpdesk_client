@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Quark Cyber Systems FZC and contributors
 # For license information, please see license.txt
 
-"""Access control for MCP tool calls based on Helpdesk Support Settings."""
+"""Access control for MCP tool calls based on HDS Support Settings."""
 
 import frappe
 
@@ -11,7 +11,7 @@ def check_doctype_access(doctype, is_write=False):
 
 	Raises frappe.PermissionError if access is denied.
 	"""
-	settings = frappe.get_single("Helpdesk Support Settings")
+	settings = frappe.get_single("HDS Support Settings")
 
 	if not settings.enabled:
 		frappe.throw("QCS Support Client is disabled", frappe.PermissionError)

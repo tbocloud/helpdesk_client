@@ -1,7 +1,7 @@
 // Copyright (c) 2026, Quark Cyber Systems FZC and Contributors
 // Adds a persistent "Raise a Ticket" launcher to the desk so users can open
 // the support-ticket dialog without the console. Only shows when ticket
-// raising is enabled in Helpdesk Support Settings (frappe.boot.genie_support_enabled).
+// raising is enabled in HDS Support Settings (frappe.boot.genie_support_enabled).
 
 frappe.provide("genie");
 

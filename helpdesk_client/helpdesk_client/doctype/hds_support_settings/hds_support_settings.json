@@ -108,7 +108,7 @@
 			"fieldname": "blocked_doctypes",
 			"fieldtype": "Table",
 			"label": "Blocked DocTypes",
-			"options": "Helpdesk Blocked DocType"
+			"options": "HDS Blocked DocType"
 		},
 		{
 			"fieldname": "column_break_acl",
@@ -119,7 +119,7 @@
 			"fieldname": "allowed_doctypes",
 			"fieldtype": "Table",
 			"label": "Allowed DocTypes",
-			"options": "Helpdesk Allowed DocType"
+			"options": "HDS Allowed DocType"
 		},
 		{
 			"fieldname": "section_limits",
@@ -203,7 +203,7 @@
 	"modified": "2026-03-29 18:00:00.000000",
 	"modified_by": "Administrator",
 	"module": "QCS Support Client",
-	"name": "hds_support_settings",
+	"name": "HDS Support Settings",
 	"owner": "Administrator",
 	"permissions": [
 		{

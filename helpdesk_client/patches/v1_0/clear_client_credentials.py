@@ -21,17 +21,17 @@ def execute():
 	"""
 	frappe.db.delete(
 		"Singles",
-		{"doctype": "Helpdesk Support Settings", "field": ("in", CREDENTIAL_FIELDS)},
+		{"doctype": "HDS Support Settings", "field": ("in", CREDENTIAL_FIELDS)},
 	)
 
 	for fieldname in CREDENTIAL_FIELDS:
 		frappe.db.delete(
 			"__Auth",
 			{
-				"doctype": "Helpdesk Support Settings",
-				"name": "Helpdesk Support Settings",
+				"doctype": "HDS Support Settings",
+				"name": "HDS Support Settings",
 				"fieldname": fieldname,
 			},
 		)
 
-	frappe.clear_cache(doctype="Helpdesk Support Settings")
+	frappe.clear_cache(doctype="HDS Support Settings")

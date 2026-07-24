@@ -10,7 +10,7 @@ from helpdesk_client.mcp.tools import register_tool
 from helpdesk_client.utils import get_settings_limit
 
 # Hard safety ceiling - admins configure the effective limit in
-# Helpdesk Support Settings -> Max Report Rows up to this value.
+# HDS Support Settings -> Max Report Rows up to this value.
 REPORT_ROWS_CEILING = 10000
 
 
@@ -59,7 +59,7 @@ register_tool(
 			},
 			"limit": {
 				"type": "integer",
-				"description": "Max rows to return. Capped by Helpdesk Support Settings -> Max Report Rows. Default: 100",
+				"description": "Max rows to return. Capped by HDS Support Settings -> Max Report Rows. Default: 100",
 			},
 		},
 		"required": ["report_name"],
