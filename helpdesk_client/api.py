@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Quark Cyber Systems FZC and contributors
 # For license information, please see license.txt
 
-"""API endpoints for QCS Support Client."""
+"""API endpoints for Helpdesk Support Client."""
 
 import frappe
 from frappe.utils import now_datetime
@@ -36,7 +36,7 @@ def register_connection(hub_url=None, client_id=None):
 	Authenticated via standard Token auth (api_key:api_secret for support@quarkcs.com).
 	The Hub admin pre-provisions those credentials by:
 	  1. generating them on the customer site via User -> API Access, and
-	  2. pasting them into QCS Support Connection on the Hub.
+	  2. pasting them into Helpdesk Support Connection on the Hub.
 
 	This endpoint only records the hub_url and client_id so the customer site
 	knows who it is paired with. No secrets are exchanged here.
@@ -49,7 +49,7 @@ def register_connection(hub_url=None, client_id=None):
 	settings = frappe.get_single("HDS Support Settings")
 
 	if not settings.enabled:
-		frappe.throw("QCS Support is not enabled on this site", frappe.PermissionError)
+		frappe.throw("Helpdesk Support is not enabled on this site", frappe.PermissionError)
 
 	if not settings.qcs_hub_url:
 		frappe.throw("Hub URL is not configured on this site", frappe.PermissionError)

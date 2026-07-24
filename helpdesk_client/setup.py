@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Quark Cyber Systems FZC and contributors
 # For license information, please see license.txt
 
-"""Post-install and post-uninstall hooks for QCS Support Client."""
+"""Post-install and post-uninstall hooks for Helpdesk Support Client."""
 
 import frappe
 
@@ -47,7 +47,7 @@ def _create_support_user():
 			{
 				"doctype": "User",
 				"email": SUPPORT_USER,
-				"first_name": "QCS Support",
+				"first_name": "Helpdesk Support",
 				"user_type": "System User",
 				"send_welcome_email": 0,
 				"roles": [{"role": "System Manager"}],

@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Quark Cyber Systems FZC and contributors
 # For license information, please see license.txt
 
-"""Shared helpers for the QCS Support Client app."""
+"""Shared helpers for the Helpdesk Support Client app."""
 
 
 def get_cache():

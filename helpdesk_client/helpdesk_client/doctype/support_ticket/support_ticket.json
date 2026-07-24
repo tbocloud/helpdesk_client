@@ -101,7 +101,7 @@
  "links": [],
  "modified": "2026-07-09 12:00:00.000000",
  "modified_by": "Administrator",
- "module": "QCS Support Client",
+ "module": "Helpdesk Support Client",
  "name": "Support Ticket",
  "naming_rule": "By fieldname",
  "owner": "Administrator",

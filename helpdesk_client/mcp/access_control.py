@@ -14,7 +14,7 @@ def check_doctype_access(doctype, is_write=False):
 	settings = frappe.get_single("HDS Support Settings")
 
 	if not settings.enabled:
-		frappe.throw("QCS Support Client is disabled", frappe.PermissionError)
+		frappe.throw("Helpdesk Support Client is disabled", frappe.PermissionError)
 
 	# Check write permission
 	if is_write and not settings.allow_write_operations:

@@ -194,7 +194,7 @@ def authorize():
 			json.dumps(
 				{
 					"error": "access_denied",
-					"error_description": "You are not permitted to authorize QCS Support access.",
+					"error_description": "You are not permitted to authorize Helpdesk Support access.",
 				}
 			),
 			status=403,

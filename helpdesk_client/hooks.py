@@ -4,7 +4,7 @@
 app_name = "helpdesk_client"
 app_title = "Genie"
 app_publisher = "Quark Cyber Systems FZC"
-app_description = "QCS Support Client to assist with QCS Helpdesk"
+app_description = "Helpdesk Support Client to assist with QCS Helpdesk"
 app_email = "support@quarkcs.com"
 app_license = "agpl-3.0"
 extend_bootinfo = "helpdesk_client.boot.set_bootinfo"
@@ -19,7 +19,7 @@ extend_bootinfo = "helpdesk_client.boot.set_bootinfo"
 # 	{
 # 		"name": "helpdesk_client",
 # 		"logo": "/assets/helpdesk_client/logo.png",
-# 		"title": "QCS Support Client",
+# 		"title": "Helpdesk Support Client",
 # 		"route": "/helpdesk_client",
 # 		"has_permission": "helpdesk_client.api.permission.has_app_permission"
 # 	}
