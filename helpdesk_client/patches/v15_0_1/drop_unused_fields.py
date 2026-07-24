@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Quark Cyber Systems FZC and contributors
 # For license information, please see license.txt
 
-"""Drop now-unused fields from QCS Support Settings (a Single DocType).
+"""Drop now-unused fields from Helpdesk Support Settings (a Single DocType).
 
 - registration_key, disable_auto_rotation, rotation_frequency_days become
   obsolete once registration + rotation move to Hub-initiated Token auth.
@@ -12,7 +12,7 @@ rows), not their own table - so we delete rows, not columns.
 
 import frappe
 
-DOCTYPE = "QCS Support Settings"
+DOCTYPE = "Helpdesk Support Settings"
 FIELDS_TO_DROP = [
 	"registration_key",
 	"disable_auto_rotation",

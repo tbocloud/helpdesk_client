@@ -17,7 +17,7 @@ def create_ticket(title, description, screen_recording=None, screenshots=None):
 	client stores no credentials and makes no outbound call. Returns the
 	local Support Ticket name — there is no Helpdesk ID yet.
 	"""
-	settings = frappe.get_cached_doc("QCS Support Settings")
+	settings = frappe.get_cached_doc("Helpdesk Support Settings")
 	if not settings.enable_ticket_raising:
 		frappe.throw(_("Ticket raising is not enabled for this site."))
 

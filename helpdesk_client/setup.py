@@ -60,8 +60,8 @@ def _create_support_user():
 
 
 def _create_default_settings():
-	"""Create default QCS Support Settings with blocked doctypes."""
-	settings = frappe.get_single("QCS Support Settings")
+	"""Create default Helpdesk Support Settings with blocked doctypes."""
+	settings = frappe.get_single("Helpdesk Support Settings")
 
 	if not settings.enabled:
 		settings.enabled = 1
@@ -78,7 +78,7 @@ def _create_default_settings():
 
 	settings.save(ignore_permissions=True)
 	frappe.db.commit()
-	print("Default QCS Support Settings created")
+	print("Default Helpdesk Support Settings created")
 
 
 def create_genie_folder():

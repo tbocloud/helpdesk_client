@@ -9,7 +9,7 @@ from helpdesk_client.mcp.tools import register_tool
 from helpdesk_client.utils import get_settings_limit
 
 # Hard safety ceilings - admins can configure the effective limit in
-# QCS Support Settings up to these values. Used to prevent a misconfigured
+# Helpdesk Support Settings up to these values. Used to prevent a misconfigured
 # Settings value from producing an unbounded query.
 LIST_LIMIT_CEILING = 5000
 ERROR_LOG_LIMIT_CEILING = 500
@@ -155,7 +155,7 @@ register_tool(
 			},
 			"limit": {
 				"type": "integer",
-				"description": "Max results to return. Capped by QCS Support Settings -> Max List Limit. Default: 20",
+				"description": "Max results to return. Capped by Helpdesk Support Settings -> Max List Limit. Default: 20",
 			},
 		},
 		"required": ["doctype"],
@@ -202,7 +202,7 @@ register_tool(
 			"method": {"type": "string", "description": "Filter by method name (partial match)"},
 			"limit": {
 				"type": "integer",
-				"description": "Max results. Capped by QCS Support Settings -> Max Error Log Limit. Default: 20",
+				"description": "Max results. Capped by Helpdesk Support Settings -> Max Error Log Limit. Default: 20",
 			},
 		},
 	},

@@ -28,16 +28,16 @@ class TestImpersonation(FrappeTestCase):
 		mock_only_for.assert_called_once_with("System Manager")
 
 	def test_blocked_when_disabled(self):
-		frappe.db.set_single_value("QCS Support Settings", "enable_user_impersonation", 0)
+		frappe.db.set_single_value("Helpdesk Support Settings", "enable_user_impersonation", 0)
 		with self.assertRaises(frappe.ValidationError):
 			generate_impersonation_url("Administrator")
 
 	def test_cannot_impersonate_administrator(self):
-		frappe.db.set_single_value("QCS Support Settings", "enable_user_impersonation", 1)
+		frappe.db.set_single_value("Helpdesk Support Settings", "enable_user_impersonation", 1)
 		with self.assertRaises(frappe.ValidationError):
 			generate_impersonation_url("Administrator")
 
 	def test_generates_link_for_regular_user(self):
-		frappe.db.set_single_value("QCS Support Settings", "enable_user_impersonation", 1)
+		frappe.db.set_single_value("Helpdesk Support Settings", "enable_user_impersonation", 1)
 		url = generate_impersonation_url("Guest")
 		self.assertIn("login_via_key?key=", url)

@@ -16,7 +16,7 @@ def get_cache():
 
 
 def get_settings_limit(fieldname: str, default: int, ceiling: int) -> int:
-	"""Read an integer row limit from QCS Support Settings.
+	"""Read an integer row limit from Helpdesk Support Settings.
 
 	Rules:
 	- empty / unset  -> return ``default``
@@ -29,7 +29,7 @@ def get_settings_limit(fieldname: str, default: int, ceiling: int) -> int:
 	import frappe
 
 	try:
-		value = frappe.db.get_single_value("QCS Support Settings", fieldname)
+		value = frappe.db.get_single_value("Helpdesk Support Settings", fieldname)
 		if value is None or value == "":
 			return default
 		v = int(value)

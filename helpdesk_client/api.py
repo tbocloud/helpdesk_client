@@ -12,7 +12,7 @@ SUPPORT_USER = "support@quarkcs.com"
 @frappe.whitelist(allow_guest=True)
 def health_check():
 	"""Health check endpoint - used by Hub's daily ping."""
-	settings = frappe.get_single("QCS Support Settings")
+	settings = frappe.get_single("Helpdesk Support Settings")
 	return {
 		"status": "ok" if settings.enabled else "disabled",
 		"site": frappe.local.site,
@@ -46,7 +46,7 @@ def register_connection(hub_url=None, client_id=None):
 	if not hub_url or not client_id:
 		frappe.throw("hub_url and client_id are required")
 
-	settings = frappe.get_single("QCS Support Settings")
+	settings = frappe.get_single("Helpdesk Support Settings")
 
 	if not settings.enabled:
 		frappe.throw("QCS Support is not enabled on this site", frappe.PermissionError)
@@ -82,7 +82,7 @@ def deregister():
 	"""
 	_require_support_user()
 
-	settings = frappe.get_single("QCS Support Settings")
+	settings = frappe.get_single("Helpdesk Support Settings")
 	settings.client_id = ""
 	settings.contract_active = 0
 	settings.save(ignore_permissions=True)
@@ -109,7 +109,7 @@ def rotate_credentials(new_api_key=None, new_api_secret=None):
 	user.api_secret = new_api_secret
 	user.save(ignore_permissions=True)
 
-	settings = frappe.get_single("QCS Support Settings")
+	settings = frappe.get_single("Helpdesk Support Settings")
 	settings.last_token_rotation = now_datetime()
 	settings.rotation_status = "Success"
 	settings.rotation_error = ""
@@ -122,7 +122,7 @@ def rotate_credentials(new_api_key=None, new_api_secret=None):
 @frappe.whitelist()
 def get_support_status():
 	"""Get current support status for the site admin dashboard."""
-	settings = frappe.get_single("QCS Support Settings")
+	settings = frappe.get_single("Helpdesk Support Settings")
 	return {
 		"enabled": settings.enabled,
 		"contract_active": settings.contract_active,

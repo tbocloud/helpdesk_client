@@ -17,16 +17,16 @@ class TestNoStoredCredentials(FrappeTestCase):
 	reaches in over MCP using a key stored on the Hub, never the reverse."""
 
 	def test_settings_store_no_credentials(self):
-		meta = frappe.get_meta("QCS Support Settings")
+		meta = frappe.get_meta("Helpdesk Support Settings")
 		present = {df.fieldname for df in meta.fields} & FORBIDDEN_FIELDS
 		self.assertEqual(
 			present,
 			set(),
-			f"QCS Support Settings must hold no credentials, found: {sorted(present)}",
+			f"Helpdesk Support Settings must hold no credentials, found: {sorted(present)}",
 		)
 
 	def test_settings_save_makes_no_outbound_call(self):
-		import helpdesk_client.helpdesk_client.doctype.qcs_support_settings.qcs_support_settings as module
+		import helpdesk_client.helpdesk_client.doctype.hds_support_settings.hds_support_settings as module
 
 		self.assertFalse(
 			hasattr(module, "make_request"),
@@ -42,7 +42,7 @@ class TestNoStoredCredentials(FrappeTestCase):
 		rows = frappe.db.sql(
 			"""
 			SELECT field FROM `tabSingles`
-			WHERE doctype = 'QCS Support Settings' AND field IN %(fields)s
+			WHERE doctype = 'Helpdesk Support Settings' AND field IN %(fields)s
 			""",
 			{"fields": tuple(FORBIDDEN_FIELDS)},
 			as_dict=True,
