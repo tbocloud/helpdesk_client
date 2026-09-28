@@ -5,5 +5,5 @@ import frappe
 from frappe.model.document import Document
 
 
-class QCSBlockedDocType(Document):
+class HDSBlockedDocType(Document):
 	pass

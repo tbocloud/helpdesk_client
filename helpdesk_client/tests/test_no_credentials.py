@@ -33,7 +33,7 @@ class TestNoStoredCredentials(FrappeTestCase):
 			"the settings controller must not import make_request",
 		)
 		self.assertFalse(
-			hasattr(module.QCSSupportSettings, "validate_sp_access"),
+			hasattr(module.HDSSupportSettings, "validate_sp_access"),
 			"validate_sp_access made an outbound call on every save",
 		)
 
