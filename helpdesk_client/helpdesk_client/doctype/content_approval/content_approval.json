@@ -15,6 +15,7 @@
   "content_section",
   "caption",
   "hashtags",
+  "images_html",
   "decision_section",
   "client_comment",
   "column_break_2",
@@ -91,6 +92,11 @@
    "read_only": 1
   },
   {
+   "fieldname": "images_html",
+   "fieldtype": "HTML",
+   "label": "Images"
+  },
+  {
    "fieldname": "decision_section",
    "fieldtype": "Section Break",
    "label": "Your decision"
@@ -121,7 +127,7 @@
   }
  ],
  "links": [],
- "modified": "2026-09-28 18:00:00.000000",
+ "modified": "2026-09-28 19:00:00.000000",
  "modified_by": "Administrator",
  "module": "Helpdesk Client",
  "name": "Content Approval",

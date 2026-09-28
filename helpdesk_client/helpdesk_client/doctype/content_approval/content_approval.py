@@ -41,7 +41,9 @@ class ContentApproval(Document):
 				"type": "Alert",
 				"document_type": self.doctype,
 				"document_name": self.name,
-				"subject": _("New content to approve: {0} ({1})").format(frappe.bold(self.title), self.channel),
+				"subject": _("New content to approve: {0} ({1})").format(
+					frappe.bold(self.title), self.channel
+				),
 				"from_user": frappe.session.user,
 			},
 		)
@@ -52,7 +54,11 @@ class ContentApproval(Document):
 		for role in (APPROVER_ROLE, "System Manager"):
 			users = frappe.get_all(
 				"Has Role",
-				filters={"role": role, "parenttype": "User", "parent": ("not in", ["Administrator", "Guest"])},
+				filters={
+					"role": role,
+					"parenttype": "User",
+					"parent": ("not in", ["Administrator", "Guest"]),
+				},
 				pluck="parent",
 			)
 			users = [u for u in set(users) if frappe.db.get_value("User", u, "enabled")]

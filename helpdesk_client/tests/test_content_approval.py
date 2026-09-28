@@ -34,6 +34,9 @@ class TestContentApproval(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			approval.save()
 
+		# a failed save still bumps the in-memory timestamp
+		approval.reload()
+		approval.status = "Changes Requested"
 		approval.client_comment = "Use the new logo"
 		approval.save()
 		self.assertEqual(approval.status, "Changes Requested")
