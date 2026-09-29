@@ -9,7 +9,7 @@ repos:
     hooks:
       - id: trailing-whitespace
         files: "helpdesk_client.*"
-        exclude: ".*json$|.*txt$|.*csv|.*md|.*svg"
+        exclude: ".*json$|.*txt$|.*csv|.*md|.*svg|helpdesk_client/public/js/lib/.*"
       - id: check-merge-conflict
       - id: check-ast
       - id: check-json

@@ -159,8 +159,14 @@ permission_query_conditions = {
 # Scheduled Tasks
 # ---------------
 
-# The client schedules no jobs. Ticket status arrives as a Hub write over
-# MCP (see qcs_support_hub.ticket_puller), so there is nothing to poll.
+# Ticket status arrives as a Hub write over MCP (see
+# qcs_support_hub.ticket_puller), so nothing polls the Hub. The only job is
+# local housekeeping: session replays of long-finished tickets are deleted.
+scheduler_events = {
+	"daily": [
+		"helpdesk_client.utils.session_replay.delete_expired_session_replays",
+	],
+}
 
 # scheduler_events = {
 # 	"all": [

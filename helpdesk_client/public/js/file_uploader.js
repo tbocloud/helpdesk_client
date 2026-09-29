@@ -3,7 +3,7 @@
 
 frappe.provide("genie");
 
-genie.UploadFile = function (file, filename) {
+genie.UploadFile = function (file, filename, options = {}) {
 	return new Promise((resolve, reject) => {
 		let xhr = new XMLHttpRequest();
 		xhr.upload.addEventListener("loadstart", (e) => {
@@ -70,7 +70,7 @@ genie.UploadFile = function (file, filename) {
 
 		let form_data = new FormData();
 		form_data.append("file", file, filename || `screen-rec-${Date.now()}.webm`);
-		form_data.append("is_private", frappe.boot.genie_file_type);
+		form_data.append("is_private", options.is_private ?? frappe.boot.genie_file_type);
 		form_data.append("folder", "Home/Genie");
 
 		xhr.send(form_data);

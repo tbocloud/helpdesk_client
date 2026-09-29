@@ -54,7 +54,11 @@ class TestStatusNotifications(FrappeTestCase):
 
 		self.assertIsNotNone(doc.last_synced)
 
-	def test_client_has_no_scheduled_jobs(self):
-		"""The outbound poller is gone; the client runs no cron at all."""
+	def test_client_schedules_no_poller(self):
+		"""The outbound poller is gone; the only cron is local replay cleanup."""
 		events = frappe.get_hooks("scheduler_events", app_name="helpdesk_client")
-		self.assertFalse(events, f"client must schedule no jobs, found: {events}")
+		self.assertEqual(
+			dict(events),
+			{"daily": ["helpdesk_client.utils.session_replay.delete_expired_session_replays"]},
+			f"client must schedule no poller, found: {events}",
+		)

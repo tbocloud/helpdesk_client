@@ -31,6 +31,11 @@
   "save_recording",
   "max_recording_size",
   "ticket_details",
+  "session_replay_section",
+  "enable_session_replay",
+  "column_break_replay",
+  "replay_minutes",
+  "replay_privacy",
   "section_break_tazx",
   "enable_user_impersonation"
  ],
@@ -175,6 +180,40 @@
    "depends_on": "eval:doc.enable_ticket_raising"
   },
   {
+   "depends_on": "eval:doc.enable_ticket_raising",
+   "fieldname": "session_replay_section",
+   "fieldtype": "Section Break",
+   "label": "Session Replay"
+  },
+  {
+   "default": "0",
+   "description": "Keeps the last few minutes of each user's activity in their browser's memory so they can attach it when raising a ticket. Nothing leaves the browser until the user ticks the box and raises a ticket.",
+   "fieldname": "enable_session_replay",
+   "fieldtype": "Check",
+   "label": "Enable Session Replay"
+  },
+  {
+   "fieldname": "column_break_replay",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "2",
+   "depends_on": "eval:doc.enable_session_replay",
+   "description": "How many minutes of recent activity to keep (1 to 5).",
+   "fieldname": "replay_minutes",
+   "fieldtype": "Int",
+   "label": "Replay Minutes"
+  },
+  {
+   "default": "Hide numbers and typed values",
+   "depends_on": "eval:doc.enable_session_replay",
+   "description": "Typed values are always hidden. Choose \"Hide all text\" to also blank out labels and headings.",
+   "fieldname": "replay_privacy",
+   "fieldtype": "Select",
+   "label": "Replay Privacy",
+   "options": "Hide numbers and typed values\nHide all text"
+  },
+  {
    "fieldname": "save_recording",
    "fieldtype": "Select",
    "label": "Save Recording",
@@ -209,7 +248,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-30 10:00:00.000000",
+ "modified": "2026-09-30 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Helpdesk Client",
  "name": "HDS Support Settings",

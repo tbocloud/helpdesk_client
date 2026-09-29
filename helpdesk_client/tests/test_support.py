@@ -154,3 +154,55 @@ class TestCreateTicket(FrappeTestCase):
 			pluck="file_url",
 		)
 		self.assertEqual(sorted(attached), sorted(urls))
+
+	@patch("helpdesk_client.utils.support.frappe.get_cached_doc")
+	def test_session_replay_files_are_attached_by_name(self, mock_settings):
+		settings = self.enabled_settings()
+		settings.enable_session_replay = 1
+		mock_settings.return_value = settings
+
+		token = frappe.generate_hash(length=10)
+		replay, diagnostics = (
+			frappe.get_doc(
+				{
+					"doctype": "File",
+					"file_name": file_name,
+					"content": f"{file_name}-{token}",
+					"is_private": 1,
+				}
+			).insert(ignore_permissions=True)
+			for file_name in ("session-replay.json.gz", "session-diagnostics.json")
+		)
+
+		name = create_ticket(
+			"With replay",
+			"<p>replay</p>",
+			session_replay=replay.file_url,
+			session_diagnostics=diagnostics.file_url,
+		)
+
+		attached = frappe.get_all(
+			"File",
+			filters={"attached_to_doctype": "Support Ticket", "attached_to_name": name},
+			pluck="file_name",
+		)
+		self.assertEqual(sorted(attached), ["session-diagnostics.json", "session-replay.json.gz"])
+
+	@patch("helpdesk_client.utils.support.frappe.get_cached_doc")
+	def test_session_replay_ignored_when_disabled(self, mock_settings):
+		settings = self.enabled_settings()
+		settings.enable_session_replay = 0
+		mock_settings.return_value = settings
+
+		replay = frappe.get_doc(
+			{
+				"doctype": "File",
+				"file_name": "session-replay.json.gz",
+				"content": f"off-{frappe.generate_hash(length=10)}",
+				"is_private": 1,
+			}
+		).insert(ignore_permissions=True)
+
+		create_ticket("Replay off", "<p>off</p>", session_replay=replay.file_url)
+
+		self.assertFalse(frappe.db.get_value("File", replay.name, "attached_to_name"))

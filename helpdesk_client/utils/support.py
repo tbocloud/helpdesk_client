@@ -8,6 +8,8 @@ from frappe import _
 from frappe.utils import cint, flt
 from frappe.utils.safe_exec import get_safe_globals, safe_eval
 
+from helpdesk_client.utils.session_replay import attach_session_files
+
 
 @frappe.whitelist()
 def create_ticket(
@@ -15,6 +17,8 @@ def create_ticket(
 	description: str,
 	screen_recording: str | None = None,
 	screenshots: str | list | None = None,
+	session_replay: str | None = None,
+	session_diagnostics: str | None = None,
 ):
 	"""Record a support request locally.
 
@@ -42,6 +46,9 @@ def create_ticket(
 
 	for file_url in parse_screenshots(screenshots):
 		attach_recording_file(doc.name, file_url)
+
+	if settings.enable_session_replay:
+		attach_session_files(doc.name, session_replay, session_diagnostics)
 
 	return doc.name
 

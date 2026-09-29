@@ -39,6 +39,7 @@ genie.SupportTicket = class SupportTicket {
 					fieldtype: "Text Editor",
 					reqd: 1,
 				},
+				...this.replay_fields(),
 				{
 					fieldtype: "Section Break",
 					label: __("Screen Recording"),
@@ -142,6 +143,8 @@ genie.SupportTicket = class SupportTicket {
 		});
 
 		this.dialog.$wrapper.find(".modal-dialog").css("z-index", 1);
+		// Session replay must not capture the ticket being written.
+		this.dialog.$wrapper.addClass("genie-no-record");
 
 		// Make "minimize" discoverable: a labelled chip instead of a bare icon.
 		this.dialog
@@ -169,6 +172,34 @@ genie.SupportTicket = class SupportTicket {
 		this.dialog.header.find(".modal-title").after(help);
 	}
 
+	replay_fields() {
+		const config = frappe.boot.genie_replay;
+		if (!config || !genie.replay || !genie.replay.is_ready()) return [];
+		const label =
+			config.minutes == 1
+				? __("Attach what I did in the last minute (private data hidden)")
+				: __("Attach what I did in the last {0} minutes (private data hidden)", [
+						config.minutes,
+				  ]);
+		const description =
+			config.privacy === "Hide all text"
+				? __(
+						"What's included: pages visited, clicks and errors. All text and typed values are hidden."
+				  )
+				: __(
+						"What's included: pages visited, clicks and errors. Numbers and typed values are hidden."
+				  );
+		return [
+			{
+				fieldname: "attach_session_replay",
+				label: label,
+				fieldtype: "Check",
+				default: 1,
+				description: description,
+			},
+		];
+	}
+
 	setIndicator(indicator) {
 		this.dialog.header
 			.find(".indicator")
@@ -187,7 +218,10 @@ genie.SupportTicket = class SupportTicket {
 				indicator: "yellow",
 				message: __("Raising ticket. Please wait..."),
 			});
-			screen_recording = await genie.UploadFile(genie.blob).catch(() => null);
+			const ext = genie.blob.type.startsWith("video/mp4") ? "mp4" : "webm";
+			screen_recording = await genie
+				.UploadFile(genie.blob, `screen-rec-${Date.now()}.${ext}`)
+				.catch(() => null);
 			if (!screen_recording) {
 				frappe.show_alert({
 					indicator: "red",
@@ -212,6 +246,10 @@ genie.SupportTicket = class SupportTicket {
 			screenshot_urls.push(url);
 		}
 
+		const replay_files = values.attach_session_replay
+			? await this.upload_session_replay()
+			: {};
+
 		this.inUpload = false;
 		frappe.call({
 			method: "helpdesk_client.utils.support.create_ticket",
@@ -221,6 +259,8 @@ genie.SupportTicket = class SupportTicket {
 				description: values.ticket_description,
 				screen_recording: screen_recording,
 				screenshots: JSON.stringify(screenshot_urls),
+				session_replay: replay_files.replay || null,
+				session_diagnostics: replay_files.diagnostics || null,
 			},
 			freeze: true,
 			freeze_message: __("Creating ticket..."),
@@ -247,6 +287,44 @@ genie.SupportTicket = class SupportTicket {
 				}
 			},
 		});
+	}
+
+	async upload_session_replay() {
+		// The replay is a nice-to-have: any failure here still raises the ticket.
+		const uploaded = {};
+		let files = null;
+		try {
+			files = genie.replay ? await genie.replay.build_files() : null;
+		} catch (err) {
+			files = null;
+		}
+		if (!files) {
+			frappe.show_alert({
+				indicator: "yellow",
+				message: __(
+					"Could not attach your recent activity. The ticket will be raised without it."
+				),
+			});
+			return uploaded;
+		}
+
+		const limit = Math.min(this.maxFileSizeInBytes, frappe.boot.max_file_size || Infinity);
+		if (files.replay.size > limit) {
+			frappe.show_alert({
+				indicator: "yellow",
+				message: __(
+					"Your recent activity is too large to attach. The ticket will be raised without it."
+				),
+			});
+		} else {
+			uploaded.replay = await genie
+				.UploadFile(files.replay, "session-replay.json.gz", { is_private: 1 })
+				.catch(() => null);
+		}
+		uploaded.diagnostics = await genie
+			.UploadFile(files.diagnostics, "session-diagnostics.json", { is_private: 1 })
+			.catch(() => null);
+		return uploaded;
 	}
 
 	init_config() {
@@ -329,6 +407,7 @@ genie.SupportTicket = class SupportTicket {
 
 		const pop = document.createElement("div");
 		pop.id = "genie-tour-popover";
+		pop.className = "genie-no-record";
 		Object.assign(pop.style, {
 			position: "fixed",
 			zIndex: "3000",
@@ -441,7 +520,9 @@ genie.SupportTicket = class SupportTicket {
 	async captureScreenshot() {
 		// One still frame via the same permission flow as recording.
 		try {
-			const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+			const stream = await navigator.mediaDevices.getDisplayMedia(
+				genie.display_media_options()
+			);
 			const video = document.createElement("video");
 			video.srcObject = stream;
 			await video.play();
@@ -497,9 +578,9 @@ genie.SupportTicket = class SupportTicket {
 
 	async setupStream() {
 		try {
-			this.stream = await navigator.mediaDevices.getDisplayMedia({
-				video: true,
-			});
+			this.stream = await navigator.mediaDevices.getDisplayMedia(
+				genie.display_media_options()
+			);
 
 			this.audio = await navigator.mediaDevices.getUserMedia({
 				audio: {
@@ -522,7 +603,7 @@ genie.SupportTicket = class SupportTicket {
 				...this.stream.getTracks(),
 				...this.audio.getTracks(),
 			]);
-			this.recorder = new MediaRecorder(this.mixedStream);
+			this.recorder = genie.make_media_recorder(this.mixedStream);
 			this.recorder.ondataavailable = (e) => {
 				genie.chunks.push(e.data);
 				this.checkFileSize();
@@ -598,6 +679,7 @@ genie.SupportTicket = class SupportTicket {
 
 		const pill = document.createElement("div");
 		pill.id = "genie-rec-pill";
+		pill.className = "genie-no-record";
 		Object.assign(pill.style, {
 			position: "fixed",
 			// top-centre: Chrome parks its own "sharing your screen" bar at
@@ -732,11 +814,33 @@ genie.SupportTicket = class SupportTicket {
 	}
 
 	handleStop(e) {
-		// MediaRecorder emits WebM — label it honestly so players don't choke.
-		genie.blob = new Blob(genie.chunks, { type: "video/webm" });
+		// Label the blob with what MediaRecorder actually produced so players
+		// don't choke; MP4 plays everywhere, WebM is the fallback.
+		const type = (this.recorder.mimeType || "video/webm").split(";")[0];
+		genie.blob = new Blob(genie.chunks, { type: type });
 		genie.blobURL = URL.createObjectURL(genie.blob);
 
 		this.stream.getTracks().forEach((track) => track.stop());
 		this.audio && this.audio.getTracks().forEach((track) => track.stop());
 	}
+};
+
+// Chrome then offers a simple "share this tab" prompt instead of the full
+// screen/window picker; other browsers ignore the hint.
+genie.display_media_options = function () {
+	return { video: true, preferCurrentTab: true };
+};
+
+genie.make_media_recorder = function (stream) {
+	if (
+		window.MediaRecorder.isTypeSupported &&
+		window.MediaRecorder.isTypeSupported("video/mp4")
+	) {
+		try {
+			return new MediaRecorder(stream, { mimeType: "video/mp4" });
+		} catch (err) {
+			// advertised but refused for this stream — use the default
+		}
+	}
+	return new MediaRecorder(stream);
 };
