@@ -5,7 +5,8 @@
 
 import frappe
 
-SUPPORT_USER = "support@quarkcs.com"
+from helpdesk_client.support_user import DEFAULT_SUPPORT_USER, get_support_user
+
 DEFAULT_BLOCKED_DOCTYPES = [
 	"User",
 	"Email Account",
@@ -24,29 +25,31 @@ def after_install():
 
 def after_uninstall():
 	"""Disable the support user."""
-	if frappe.db.exists("User", SUPPORT_USER):
-		frappe.db.set_value("User", SUPPORT_USER, "enabled", 0)
+	support_user = get_support_user()
+	if frappe.db.exists("User", support_user):
+		frappe.db.set_value("User", support_user, "enabled", 0)
 		frappe.db.commit()  # install hook: keep each setup step even if a later one fails - nosemgrep
-		print(f"Disabled user {SUPPORT_USER}")
+		print(f"Disabled user {support_user}")
 
 
 def _create_support_user():
-	"""Create or enable the support@quarkcs.com user with System Manager role.
+	"""Create or enable the hub's support user (HDS Support Settings) with System Manager role.
 
 	API keys are NOT generated here - they are created during the Hub
 	onboarding/registration process to avoid exposing credentials in logs.
 	"""
-	if frappe.db.exists("User", SUPPORT_USER):
-		user = frappe.get_doc("User", SUPPORT_USER)
+	support_user = get_support_user()
+	if frappe.db.exists("User", support_user):
+		user = frappe.get_doc("User", support_user)
 		if not user.enabled:
 			user.enabled = 1
 			user.save(ignore_permissions=True)
-			print(f"Re-enabled existing user {SUPPORT_USER}")
+			print(f"Re-enabled existing user {support_user}")
 	else:
 		user = frappe.get_doc(
 			{
 				"doctype": "User",
-				"email": SUPPORT_USER,
+				"email": support_user,
 				"first_name": "Helpdesk Support",
 				"user_type": "System User",
 				"send_welcome_email": 0,
@@ -54,7 +57,7 @@ def _create_support_user():
 			}
 		)
 		user.insert(ignore_permissions=True)
-		print(f"Created user {SUPPORT_USER}")
+		print(f"Created user {support_user}")
 
 	frappe.db.commit()  # install hook: keep each setup step even if a later one fails - nosemgrep
 
@@ -65,6 +68,9 @@ def _create_default_settings():
 
 	if not settings.enabled:
 		settings.enabled = 1
+
+	if not settings.support_user:
+		settings.support_user = get_support_user() or DEFAULT_SUPPORT_USER
 
 	if not settings.blocked_doctypes:
 		for dt in DEFAULT_BLOCKED_DOCTYPES:

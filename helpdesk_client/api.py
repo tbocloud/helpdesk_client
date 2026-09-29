@@ -7,7 +7,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
-SUPPORT_USER = "support@quarkcs.com"
+from helpdesk_client.support_user import get_support_user
 
 
 @frappe.whitelist(allow_guest=True)  # Hub daily ping runs unauthenticated; returns no secrets - nosemgrep
@@ -22,10 +22,11 @@ def health_check():
 
 
 def _require_support_user():
-	"""Block all non-Token-auth access: only the Hub (acting as support@quarkcs.com) can call."""
-	if frappe.session.user != SUPPORT_USER:
+	"""Block all non-Token-auth access: only the Hub (acting as the support user) can call."""
+	support_user = get_support_user()
+	if frappe.session.user != support_user:
 		frappe.throw(
-			_("This endpoint must be called by {0} via API Token auth.").format(SUPPORT_USER),
+			_("This endpoint must be called by {0} via API Token auth.").format(support_user),
 			frappe.PermissionError,
 		)
 
@@ -34,7 +35,7 @@ def _require_support_user():
 def register_connection(hub_url: str | None = None, client_id: str | None = None):
 	"""Hub-initiated connection handshake.
 
-	Authenticated via standard Token auth (api_key:api_secret for support@quarkcs.com).
+	Authenticated via standard Token auth (api_key:api_secret for the support user).
 	The Hub admin pre-provisions those credentials by:
 	  1. generating them on the customer site via User -> API Access, and
 	  2. pasting them into Helpdesk Support Connection on the Hub.
@@ -69,6 +70,8 @@ def register_connection(hub_url: str | None = None, client_id: str | None = None
 		"status": "registered",
 		"site": frappe.local.site,
 		"client_id": client_id,
+		# the Hub stores this so it knows which user's actions are its own
+		"support_user": get_support_user(),
 	}
 
 
@@ -105,7 +108,7 @@ def rotate_credentials(new_api_key: str | None = None, new_api_secret: str | Non
 	if not new_api_key or not new_api_secret:
 		frappe.throw(_("new_api_key and new_api_secret are required"))
 
-	user = frappe.get_doc("User", SUPPORT_USER)
+	user = frappe.get_doc("User", get_support_user())
 	user.api_key = new_api_key
 	user.api_secret = new_api_secret
 	user.save(ignore_permissions=True)
@@ -139,7 +142,7 @@ def get_support_status():
 def generate_login_url():
 	"""Generate a one-time login URL for the support user.
 
-	Called by the Hub (authenticated as support@quarkcs.com via Token auth)
+	Called by the Hub (authenticated as the support user via Token auth)
 	to let agents login to the customer site without sharing credentials.
 	"""
 	_require_support_user()
@@ -149,7 +152,7 @@ def generate_login_url():
 	from helpdesk_client.utils import get_cache
 
 	key = frappe.generate_hash(length=32)
-	get_cache().set_value(f"one_time_login:{key}", SUPPORT_USER, expires_in_sec=300)
+	get_cache().set_value(f"one_time_login:{key}", get_support_user(), expires_in_sec=300)
 
 	login_url = get_url(f"/api/method/helpdesk_client.api.one_time_login?key={key}")
 	return {"login_url": login_url, "expires_in": 300}
@@ -185,3 +188,80 @@ def one_time_login(key: str | None = None):
 	from frappe.utils import get_url
 
 	return Response("", status=302, headers={"Location": get_url("/app")})
+
+
+@frappe.whitelist(methods=["POST"])
+def connect_to_hub(code: str, hub_url: str | None = None) -> dict:
+	"""Connect this site to TBO Support with a connection code from the hub.
+
+	Makes fresh API keys for the support user and hands them to the hub, which
+	then registers this site the usual way (hub_url + client_id). This is the
+	only call this site makes to the hub; everything after is hub-initiated.
+	"""
+	import requests
+
+	from helpdesk_client.setup import _create_support_user
+	from helpdesk_client.support_user import DEFAULT_HUB_URL
+	from helpdesk_client.utils import normalize_site_url
+
+	if "System Manager" not in frappe.get_roles():
+		frappe.throw(_("Only a System Manager can connect this site."), frappe.PermissionError)
+	code = (code or "").strip()
+	if not code:
+		frappe.throw(_("Enter the connection code from TBO Support."))
+
+	settings = frappe.get_single("HDS Support Settings")
+	hub_url = normalize_site_url(hub_url or settings.qcs_hub_url or DEFAULT_HUB_URL)
+	host = hub_url.split("://", 1)[-1].split("/", 1)[0].split(":")[0]
+	if not hub_url.startswith("https://") and not host.endswith("localhost"):
+		frappe.throw(_("The hub URL must use https."))
+
+	settings.qcs_hub_url = hub_url
+	settings.enabled = 1
+	settings.save(ignore_permissions=True)
+	_create_support_user()
+	support_user = get_support_user()
+	api_key = frappe.generate_hash(length=15)
+	api_secret = frappe.generate_hash(length=15)
+	user = frappe.get_doc("User", support_user)
+	user.api_key = api_key
+	user.api_secret = api_secret
+	user.save(ignore_permissions=True)
+	frappe.db.commit()  # the hub signs in with these keys while this request is still open - nosemgrep
+
+	try:
+		response = requests.post(
+			f"{hub_url}/api/method/helpdesk.api.pair_client",
+			json={
+				"code": code,
+				"site_url": frappe.utils.get_url(),
+				"api_key": api_key,
+				"api_secret": api_secret,
+				"client_app": "helpdesk_client",
+				"support_user": support_user,
+			},
+			timeout=60,
+		)
+	except requests.RequestException as e:
+		frappe.throw(_("Couldn't reach {0}: {1}").format(hub_url, str(e)[:200]))
+
+	if response.status_code != 200:
+		frappe.throw(_("TBO Support refused the connection: {0}").format(_hub_error(response)))
+	return {"status": "connected", "hub_url": hub_url}
+
+
+def _hub_error(response) -> str:
+	import json
+
+	try:
+		data = response.json()
+	except ValueError:
+		return response.text[:300]
+	messages = data.get("_server_messages")
+	if messages:
+		try:
+			first = json.loads(json.loads(messages)[0])
+			return frappe.utils.strip_html(first.get("message", ""))[:300]
+		except (ValueError, IndexError, TypeError, AttributeError):
+			pass
+	return str(data.get("exception") or data)[:300]

@@ -23,9 +23,8 @@ from urllib.parse import quote
 import frappe
 from werkzeug.wrappers import Response
 
+from helpdesk_client.support_user import get_support_user
 from helpdesk_client.utils import get_cache
-
-SUPPORT_USER = "support@quarkcs.com"
 
 
 def _is_authorized_oauth_user(user):
@@ -37,7 +36,7 @@ def _is_authorized_oauth_user(user):
 	"""
 	if not user or user == "Guest":
 		return False
-	if user == SUPPORT_USER:
+	if user == get_support_user():
 		return True
 	return "System Manager" in frappe.get_roles(user)
 
@@ -302,15 +301,16 @@ def token():
 	# Get support user credentials
 	from frappe.utils.password import get_decrypted_password
 
-	if not frappe.db.exists("User", SUPPORT_USER):
+	support_user = get_support_user()
+	if not frappe.db.exists("User", support_user):
 		return Response(
 			json.dumps({"error": "server_error", "error_description": "Support user not configured"}),
 			status=500,
 			headers={"Content-Type": "application/json"},
 		)
 
-	user = frappe.get_doc("User", SUPPORT_USER)
-	api_secret = get_decrypted_password("User", SUPPORT_USER, "api_secret", raise_exception=False)
+	user = frappe.get_doc("User", support_user)
+	api_secret = get_decrypted_password("User", support_user, "api_secret", raise_exception=False)
 
 	if not user.api_key or not api_secret:
 		return Response(

@@ -5,6 +5,7 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 
+from helpdesk_client.support_user import get_support_user
 from helpdesk_client.utils.notifications import notify_status_change
 
 
@@ -46,7 +47,7 @@ def notify_reply(doc, method):
 	agent reply pushed by the Hub — notify the reporter with the text."""
 	if doc.reference_doctype != "Support Ticket" or doc.comment_type != "Comment":
 		return
-	if doc.owner != "support@quarkcs.com":
+	if doc.owner != get_support_user():
 		return
 	raised_by = frappe.db.get_value("Support Ticket", doc.reference_name, "raised_by")
 	if not raised_by or raised_by == doc.owner:

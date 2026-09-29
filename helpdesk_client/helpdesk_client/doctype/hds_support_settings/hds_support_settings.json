@@ -8,6 +8,7 @@
   "allow_write_operations",
   "section_hub",
   "qcs_hub_url",
+  "support_user",
   "client_id",
   "column_break_hub",
   "contract_active",
@@ -52,7 +53,7 @@
    "label": "Helpdesk Support Hub"
   },
   {
-   "default": "https://support.quarkcs.com",
+   "default": "https://teams.teambackoffice.com",
    "fieldname": "qcs_hub_url",
    "fieldtype": "Data",
    "label": "Hub URL",
@@ -196,11 +197,19 @@
    "fieldname": "enable_user_impersonation",
    "fieldtype": "Check",
    "label": "Enable User Impersonation"
+  },
+  {
+   "fieldname": "support_user",
+   "fieldtype": "Data",
+   "options": "Email",
+   "label": "Support User",
+   "default": "support@teambackoffice.com",
+   "description": "The user TBO Support (the hub) signs in as on this site. Generate its API keys during registration. Changing it after registration disconnects the hub."
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-28 18:00:00.000000",
+ "modified": "2026-09-30 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Helpdesk Client",
  "name": "HDS Support Settings",
