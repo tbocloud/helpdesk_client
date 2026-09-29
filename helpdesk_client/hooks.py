@@ -4,7 +4,7 @@
 app_name = "helpdesk_client"
 app_title = "Genie"
 app_publisher = "Quark Cyber Systems FZC"
-app_description = "Helpdesk Support Client to assist with QCS Helpdesk"
+app_description = "Connects this ERPNext site to TBO Support"
 app_email = "support@quarkcs.com"
 app_license = "agpl-3.0"
 extend_bootinfo = "helpdesk_client.boot.set_bootinfo"
