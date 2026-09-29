@@ -26,7 +26,7 @@ def after_uninstall():
 	"""Disable the support user."""
 	if frappe.db.exists("User", SUPPORT_USER):
 		frappe.db.set_value("User", SUPPORT_USER, "enabled", 0)
-		frappe.db.commit()
+		frappe.db.commit()  # install hook: keep each setup step even if a later one fails - nosemgrep
 		print(f"Disabled user {SUPPORT_USER}")
 
 
@@ -41,7 +41,7 @@ def _create_support_user():
 		if not user.enabled:
 			user.enabled = 1
 			user.save(ignore_permissions=True)
-			print("Re-enabled existing user %s" % SUPPORT_USER)
+			print(f"Re-enabled existing user {SUPPORT_USER}")
 	else:
 		user = frappe.get_doc(
 			{
@@ -54,9 +54,9 @@ def _create_support_user():
 			}
 		)
 		user.insert(ignore_permissions=True)
-		print("Created user %s" % SUPPORT_USER)
+		print(f"Created user {SUPPORT_USER}")
 
-	frappe.db.commit()
+	frappe.db.commit()  # install hook: keep each setup step even if a later one fails - nosemgrep
 
 
 def _create_default_settings():
@@ -77,7 +77,7 @@ def _create_default_settings():
 		settings.max_report_rows = 500
 
 	settings.save(ignore_permissions=True)
-	frappe.db.commit()
+	frappe.db.commit()  # install hook: keep each setup step even if a later one fails - nosemgrep
 	print("Default HDS Support Settings created")
 
 

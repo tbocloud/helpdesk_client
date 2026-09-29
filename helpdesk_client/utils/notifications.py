@@ -15,11 +15,13 @@ def notify_status_change(doc, new_status):
 		return
 
 	reference = doc.ticket_id or doc.name
-	frappe.get_doc({
-		"doctype": "Notification Log",
-		"for_user": doc.raised_by,
-		"type": "Alert",
-		"subject": _("Your support ticket #{0} is now {1}").format(reference, _(new_status)),
-		"document_type": "Support Ticket",
-		"document_name": doc.name,
-	}).insert(ignore_permissions=True)
+	frappe.get_doc(
+		{
+			"doctype": "Notification Log",
+			"for_user": doc.raised_by,
+			"type": "Alert",
+			"subject": _("Your support ticket #{0} is now {1}").format(reference, _(new_status)),
+			"document_type": "Support Ticket",
+			"document_name": doc.name,
+		}
+	).insert(ignore_permissions=True)

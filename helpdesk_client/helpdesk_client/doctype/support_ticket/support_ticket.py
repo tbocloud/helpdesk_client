@@ -32,7 +32,7 @@ def get_permission_query_conditions(user):
 
 
 @frappe.whitelist()
-def request_close(ticket):
+def request_close(ticket: str):
 	"""Owner asks to close: flag it; the Hub closes the HD Ticket next cycle."""
 	doc = frappe.get_doc("Support Ticket", ticket)
 	if doc.owner != frappe.session.user and "System Manager" not in frappe.get_roles():
@@ -51,13 +51,14 @@ def notify_reply(doc, method):
 	raised_by = frappe.db.get_value("Support Ticket", doc.reference_name, "raised_by")
 	if not raised_by or raised_by == doc.owner:
 		return
-	frappe.get_doc({
-		"doctype": "Notification Log",
-		"for_user": raised_by,
-		"type": "Alert",
-		"subject": frappe._("Support replied on {0}").format(doc.reference_name),
-		"email_content": doc.content,
-		"document_type": "Support Ticket",
-		"document_name": doc.reference_name,
-	}).insert(ignore_permissions=True)
-
+	frappe.get_doc(
+		{
+			"doctype": "Notification Log",
+			"for_user": raised_by,
+			"type": "Alert",
+			"subject": frappe._("Support replied on {0}").format(doc.reference_name),
+			"email_content": doc.content,
+			"document_type": "Support Ticket",
+			"document_name": doc.reference_name,
+		}
+	).insert(ignore_permissions=True)

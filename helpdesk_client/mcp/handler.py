@@ -46,7 +46,7 @@ def _json_response(data: dict, status: int = 200, session_id=None) -> Response:
 	return Response(json.dumps(data), status=status, headers=headers)
 
 
-@frappe.whitelist(allow_guest=True, methods=["GET", "POST"])
+@frappe.whitelist(allow_guest=True, methods=["GET", "POST"])  # MCP does its own auth - nosemgrep
 def handle():
 	"""Main MCP endpoint. Handles all JSON-RPC 2.0 requests."""
 	# GET requests are SSE stream attempts for server-initiated notifications.
@@ -100,7 +100,7 @@ def handle():
 		return _json_response(make_error(req_id, INVALID_REQUEST, "Invalid or missing session"), status=400)
 
 	user = get_session_user(session_id)
-	frappe.set_user(user)
+	frappe.set_user(user)  # session was created only after authenticate_request() - nosemgrep
 
 	# --- tools/list ---
 	if method == "tools/list":

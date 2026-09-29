@@ -23,26 +23,32 @@ def detail_row(key, value, type="String", cast_to=None):
 
 class TestGenerateTicketDetails(FrappeTestCase):
 	def test_string_and_integer_rows(self):
-		settings = make_settings([
-			detail_row("site_name", "example.com"),
-			detail_row("priority", "2", type="Integer"),
-		])
+		settings = make_settings(
+			[
+				detail_row("site_name", "example.com"),
+				detail_row("priority", "2", type="Integer"),
+			]
+		)
 		out = generate_ticket_details(settings)
 		self.assertEqual(out, {"site_name": "example.com", "priority": 2})
 
 	def test_context_row_is_safely_evaluated(self):
-		settings = make_settings([
-			detail_row("computed", "1 + 1", type="Context"),
-		])
+		settings = make_settings(
+			[
+				detail_row("computed", "1 + 1", type="Context"),
+			]
+		)
 		out = generate_ticket_details(settings)
 		self.assertEqual(out["computed"], 2)
 
 	def test_cast_to_overrides(self):
-		settings = make_settings([
-			detail_row("as_int", "7", cast_to="Int"),
-			detail_row("as_str", "7", type="Integer", cast_to="String"),
-			detail_row("as_float", "1.5", cast_to="Float"),
-		])
+		settings = make_settings(
+			[
+				detail_row("as_int", "7", cast_to="Int"),
+				detail_row("as_str", "7", type="Integer", cast_to="String"),
+				detail_row("as_float", "1.5", cast_to="Float"),
+			]
+		)
 		out = generate_ticket_details(settings)
 		self.assertEqual(out["as_int"], 7)
 		self.assertEqual(out["as_str"], "7")
@@ -107,12 +113,14 @@ class TestCreateTicket(FrappeTestCase):
 		create_ticket must attach the recording to the new ticket."""
 		mock_settings.return_value = self.enabled_settings()
 
-		file_doc = frappe.get_doc({
-			"doctype": "File",
-			"file_name": "attach-test.webm",
-			"content": "fake-webm-bytes",
-			"is_private": 1,
-		}).insert(ignore_permissions=True)
+		file_doc = frappe.get_doc(
+			{
+				"doctype": "File",
+				"file_name": "attach-test.webm",
+				"content": "fake-webm-bytes",
+				"is_private": 1,
+			}
+		).insert(ignore_permissions=True)
 
 		name = create_ticket("With recording", "<p>video</p>", file_doc.file_url)
 
@@ -128,12 +136,14 @@ class TestCreateTicket(FrappeTestCase):
 
 		urls = []
 		for i in range(2):
-			f = frappe.get_doc({
-				"doctype": "File",
-				"file_name": f"shot-{i}.png",
-				"content": f"png-bytes-{i}",
-				"is_private": 1,
-			}).insert(ignore_permissions=True)
+			f = frappe.get_doc(
+				{
+					"doctype": "File",
+					"file_name": f"shot-{i}.png",
+					"content": f"png-bytes-{i}",
+					"is_private": 1,
+				}
+			).insert(ignore_permissions=True)
 			urls.append(f.file_url)
 
 		name = create_ticket("With screenshots", "<p>imgs</p>", screenshots=_json.dumps(urls))
@@ -144,4 +154,3 @@ class TestCreateTicket(FrappeTestCase):
 			pluck="file_url",
 		)
 		self.assertEqual(sorted(attached), sorted(urls))
-

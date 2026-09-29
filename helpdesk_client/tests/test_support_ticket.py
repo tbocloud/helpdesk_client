@@ -9,12 +9,14 @@ class TestSupportTicket(FrappeTestCase):
 	def test_ticket_can_be_created_without_hd_ticket_id(self):
 		"""Under the zero-client-key flow the ticket is created before any
 		Helpdesk ticket exists, so ticket_id cannot be required."""
-		doc = frappe.get_doc({
-			"doctype": "Support Ticket",
-			"subject": "Printer offline",
-			"description": "<p>The warehouse printer is offline.</p>",
-			"raised_by": "Administrator",
-		}).insert(ignore_permissions=True)
+		doc = frappe.get_doc(
+			{
+				"doctype": "Support Ticket",
+				"subject": "Printer offline",
+				"description": "<p>The warehouse printer is offline.</p>",
+				"raised_by": "Administrator",
+			}
+		).insert(ignore_permissions=True)
 
 		self.assertTrue(doc.name.startswith("SUP-"))
 		self.assertEqual(doc.status, "Pending")

@@ -21,20 +21,16 @@ class AddressFetcher(Document):
 			if row.gstin:
 				continue
 
-			row.gstin = frappe.db.get_value(
-				row.party_type, row.party, "gstin" 
-			)
+			row.gstin = frappe.db.get_value(row.party_type, row.party, "gstin")
 
 			if not row.gstin:
 				frappe.msgprint(
-					_("GSTIN not found for {0} {1}").format(
-						row.party_type, row.party
-					),
+					_("GSTIN not found for {0} {1}").format(row.party_type, row.party),
 					alert=True,
 				)
 
 	@frappe.whitelist()
-	def fetch_parties(self, party_type):
+	def fetch_parties(self, party_type: str):
 		frappe.only_for("System Manager")
 
 		if self.status != "Pending":
@@ -61,10 +57,7 @@ class AddressFetcher(Document):
 		)
 
 		existing_parties = {(row.party_type, row.party) for row in self.parties}
-		wo_address = [
-			row for row in wo_address
-			if (party_type, row.name) not in existing_parties
-		]
+		wo_address = [row for row in wo_address if (party_type, row.name) not in existing_parties]
 
 		if not wo_address:
 			frappe.msgprint(
@@ -112,24 +105,24 @@ class AddressFetcher(Document):
 					row.db_set("fetched", 1)
 					continue
 				primary_address = address_data.pop(0)
-				self.add_address({
-					"gstin": row.gstin,
-					"address_title": gstin_data.get("business_name") or row.party,
-					"is_primary_address": 1,
-					"links": [
-						{"link_doctype": row.party_type, "link_name": row.party}
-					],
-					**primary_address
-				})
-				for address in address_data:
-					self.add_address({
+				self.add_address(
+					{
 						"gstin": row.gstin,
 						"address_title": gstin_data.get("business_name") or row.party,
-						"links": [
-							{"link_doctype": row.party_type, "link_name": row.party}
-						],
-						**address
-					})
+						"is_primary_address": 1,
+						"links": [{"link_doctype": row.party_type, "link_name": row.party}],
+						**primary_address,
+					}
+				)
+				for address in address_data:
+					self.add_address(
+						{
+							"gstin": row.gstin,
+							"address_title": gstin_data.get("business_name") or row.party,
+							"links": [{"link_doctype": row.party_type, "link_name": row.party}],
+							**address,
+						}
+					)
 
 				row.db_set("fetched", 1)
 				index += 1
@@ -145,7 +138,7 @@ class AddressFetcher(Document):
 					break
 			except Exception:
 				frappe.log_error(
-					title="Address Fetcher Error for {0} {1}".format(row.party, row.gstin),
+					title=f"Address Fetcher Error for {row.party} {row.gstin}",
 					message=frappe.get_traceback(),
 				)
 				continue

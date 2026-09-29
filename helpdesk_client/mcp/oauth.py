@@ -91,7 +91,7 @@ def before_request_handler():
 	raise exc
 
 
-@frappe.whitelist(allow_guest=True, methods=["GET"])
+@frappe.whitelist(allow_guest=True, methods=["GET"])  # OAuth metadata is public by spec - nosemgrep
 def discovery():
 	"""OAuth 2.0 Authorization Server Metadata.
 
@@ -116,7 +116,7 @@ def discovery():
 	)
 
 
-@frappe.whitelist(allow_guest=True, methods=["POST"])
+@frappe.whitelist(allow_guest=True, methods=["POST"])  # RFC 7591 registration precedes any login - nosemgrep
 def register():
 	"""OAuth 2.0 Dynamic Client Registration (RFC 7591)."""
 	body = frappe.request.get_data()
@@ -134,7 +134,7 @@ def register():
 
 	# Store client in cache (expires in 24h)
 	get_cache().set_value(
-		"mcp_oauth_client:%s" % client_id,
+		f"mcp_oauth_client:{client_id}",
 		{
 			"client_secret": client_secret,
 			"client_name": data.get("client_name", "unknown"),
@@ -160,7 +160,7 @@ def register():
 	)
 
 
-@frappe.whitelist(allow_guest=True, methods=["GET"])
+@frappe.whitelist(allow_guest=True, methods=["GET"])  # OAuth authorize redirects guests to login - nosemgrep
 def authorize():
 	"""OAuth 2.0 Authorization Endpoint.
 
@@ -202,7 +202,7 @@ def authorize():
 		)
 
 	# Validate redirect_uri against the client registered via /register.
-	client = get_cache().get_value("mcp_oauth_client:%s" % client_id) if client_id else None
+	client = get_cache().get_value(f"mcp_oauth_client:{client_id}") if client_id else None
 	if not client or redirect_uri not in (client.get("redirect_uris") or []):
 		return Response(
 			json.dumps(
@@ -218,7 +218,7 @@ def authorize():
 	# Generate auth code, bound to the authenticated user (+ PKCE challenge).
 	code = frappe.generate_hash(length=20)
 	get_cache().set_value(
-		"mcp_oauth_code:%s" % code,
+		f"mcp_oauth_code:{code}",
 		{
 			"client_id": client_id,
 			"redirect_uri": redirect_uri,
@@ -238,7 +238,7 @@ def authorize():
 	return Response("", status=302, headers={"Location": location})
 
 
-@frappe.whitelist(allow_guest=True, methods=["POST"])
+@frappe.whitelist(allow_guest=True, methods=["POST"])  # OAuth code exchange - nosemgrep
 def token():
 	"""OAuth 2.0 Token Endpoint.
 
@@ -258,7 +258,7 @@ def token():
 		)
 
 	# Validate auth code
-	cache_key = "mcp_oauth_code:%s" % code
+	cache_key = f"mcp_oauth_code:{code}"
 	code_data = get_cache().get_value(cache_key)
 	if not code_data:
 		return Response(

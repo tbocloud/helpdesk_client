@@ -10,9 +10,9 @@ USER_B = "support-ticket-b@example.com"
 
 def ensure_user(email):
 	if not frappe.db.exists("Role", "Genie User"):
-		frappe.get_doc(
-			{"doctype": "Role", "role_name": "Genie User", "desk_access": 1}
-		).insert(ignore_permissions=True)
+		frappe.get_doc({"doctype": "Role", "role_name": "Genie User", "desk_access": 1}).insert(
+			ignore_permissions=True
+		)
 
 	if not frappe.db.exists("User", email):
 		frappe.get_doc(

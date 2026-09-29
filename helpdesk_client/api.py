@@ -4,12 +4,13 @@
 """API endpoints for Helpdesk Support Client."""
 
 import frappe
+from frappe import _
 from frappe.utils import now_datetime
 
 SUPPORT_USER = "support@quarkcs.com"
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=True)  # Hub daily ping runs unauthenticated; returns no secrets - nosemgrep
 def health_check():
 	"""Health check endpoint - used by Hub's daily ping."""
 	settings = frappe.get_single("HDS Support Settings")
@@ -24,13 +25,13 @@ def _require_support_user():
 	"""Block all non-Token-auth access: only the Hub (acting as support@quarkcs.com) can call."""
 	if frappe.session.user != SUPPORT_USER:
 		frappe.throw(
-			f"This endpoint must be called by {SUPPORT_USER} via API Token auth.",
+			_("This endpoint must be called by {0} via API Token auth.").format(SUPPORT_USER),
 			frappe.PermissionError,
 		)
 
 
 @frappe.whitelist()
-def register_connection(hub_url=None, client_id=None):
+def register_connection(hub_url: str | None = None, client_id: str | None = None):
 	"""Hub-initiated connection handshake.
 
 	Authenticated via standard Token auth (api_key:api_secret for support@quarkcs.com).
@@ -44,25 +45,25 @@ def register_connection(hub_url=None, client_id=None):
 	_require_support_user()
 
 	if not hub_url or not client_id:
-		frappe.throw("hub_url and client_id are required")
+		frappe.throw(_("hub_url and client_id are required"))
 
 	settings = frappe.get_single("HDS Support Settings")
 
 	if not settings.enabled:
-		frappe.throw("Helpdesk Support is not enabled on this site", frappe.PermissionError)
+		frappe.throw(_("Helpdesk Support is not enabled on this site"), frappe.PermissionError)
 
 	if not settings.qcs_hub_url:
-		frappe.throw("Hub URL is not configured on this site", frappe.PermissionError)
+		frappe.throw(_("Hub URL is not configured on this site"), frappe.PermissionError)
 
 	from helpdesk_client.utils import normalize_site_url
 
 	if normalize_site_url(hub_url) != normalize_site_url(settings.qcs_hub_url):
-		frappe.throw("Hub URL does not match the configured Hub URL", frappe.PermissionError)
+		frappe.throw(_("Hub URL does not match the configured Hub URL"), frappe.PermissionError)
 
 	settings.client_id = client_id
 	settings.contract_active = 1
 	settings.save(ignore_permissions=True)
-	frappe.db.commit()
+	frappe.db.commit()  # the Hub reads the reply as confirmation, so persist first - nosemgrep
 
 	return {
 		"status": "registered",
@@ -86,13 +87,13 @@ def deregister():
 	settings.client_id = ""
 	settings.contract_active = 0
 	settings.save(ignore_permissions=True)
-	frappe.db.commit()
+	frappe.db.commit()  # the Hub reads the reply as confirmation, so persist first - nosemgrep
 
 	return {"status": "deregistered", "site": frappe.local.site}
 
 
 @frappe.whitelist()
-def rotate_credentials(new_api_key=None, new_api_secret=None):
+def rotate_credentials(new_api_key: str | None = None, new_api_secret: str | None = None):
 	"""Hub-initiated credential rotation.
 
 	Authenticated via standard Token auth with the CURRENT api_key:api_secret.
@@ -102,7 +103,7 @@ def rotate_credentials(new_api_key=None, new_api_secret=None):
 	_require_support_user()
 
 	if not new_api_key or not new_api_secret:
-		frappe.throw("new_api_key and new_api_secret are required")
+		frappe.throw(_("new_api_key and new_api_secret are required"))
 
 	user = frappe.get_doc("User", SUPPORT_USER)
 	user.api_key = new_api_key
@@ -114,7 +115,7 @@ def rotate_credentials(new_api_key=None, new_api_secret=None):
 	settings.rotation_status = "Success"
 	settings.rotation_error = ""
 	settings.save(ignore_permissions=True)
-	frappe.db.commit()
+	frappe.db.commit()  # the Hub reads the reply as confirmation, so persist first - nosemgrep
 
 	return {"status": "rotated", "rotated_at": str(now_datetime())}
 
@@ -148,14 +149,14 @@ def generate_login_url():
 	from helpdesk_client.utils import get_cache
 
 	key = frappe.generate_hash(length=32)
-	get_cache().set_value("one_time_login:%s" % key, SUPPORT_USER, expires_in_sec=300)
+	get_cache().set_value(f"one_time_login:{key}", SUPPORT_USER, expires_in_sec=300)
 
-	login_url = get_url("/api/method/helpdesk_client.api.one_time_login?key=%s" % key)
+	login_url = get_url(f"/api/method/helpdesk_client.api.one_time_login?key={key}")
 	return {"login_url": login_url, "expires_in": 300}
 
 
-@frappe.whitelist(allow_guest=True, methods=["GET"])
-def one_time_login(key=None):
+@frappe.whitelist(allow_guest=True, methods=["GET"])  # guests redeem a single-use cached key - nosemgrep
+def one_time_login(key: str | None = None):
 	"""One-time login endpoint. Redirects to Desk after authentication.
 
 	The key is validated against the cache and can only be used once.
@@ -165,14 +166,14 @@ def one_time_login(key=None):
 	from helpdesk_client.utils import get_cache
 
 	if not key:
-		frappe.throw("Missing login key")
+		frappe.throw(_("Missing login key"))
 
 	cache = get_cache()
-	cache_key = "one_time_login:%s" % key
+	cache_key = f"one_time_login:{key}"
 	user = cache.get_value(cache_key)
 
 	if not user:
-		frappe.throw("Invalid or expired login key")
+		frappe.throw(_("Invalid or expired login key"))
 
 	# Delete the key so it can't be reused
 	cache.delete_value(cache_key)

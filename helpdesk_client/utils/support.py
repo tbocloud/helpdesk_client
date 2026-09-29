@@ -10,7 +10,12 @@ from frappe.utils.safe_exec import get_safe_globals, safe_eval
 
 
 @frappe.whitelist()
-def create_ticket(title, description, screen_recording=None, screenshots=None):
+def create_ticket(
+	title: str,
+	description: str,
+	screen_recording: str | None = None,
+	screenshots: str | list | None = None,
+):
 	"""Record a support request locally.
 
 	The Hub picks it up over MCP and creates the Helpdesk ticket, so the
@@ -21,14 +26,16 @@ def create_ticket(title, description, screen_recording=None, screenshots=None):
 	if not settings.enable_ticket_raising:
 		frappe.throw(_("Ticket raising is not enabled for this site."))
 
-	doc = frappe.get_doc({
-		"doctype": "Support Ticket",
-		"subject": title,
-		"description": description,
-		"status": "Pending",
-		"raised_by": frappe.session.user,
-		"screen_recording": screen_recording,
-	}).insert(ignore_permissions=True)
+	doc = frappe.get_doc(
+		{
+			"doctype": "Support Ticket",
+			"subject": title,
+			"description": description,
+			"status": "Pending",
+			"raised_by": frappe.session.user,
+			"screen_recording": screen_recording,
+		}
+	).insert(ignore_permissions=True)
 
 	if screen_recording:
 		attach_recording_file(doc.name, screen_recording)
@@ -80,7 +87,8 @@ def generate_ticket_details(settings):
 		elif row.type == "Integer":
 			req_params[row.key] = cint(row.value)
 		elif row.type == "Context":
-			req_params[row.key] = safe_eval(row.value, get_safe_globals(), {})
+			# admin-configured expression, run in Frappe's sandbox
+			req_params[row.key] = safe_eval(row.value, get_safe_globals(), {})  # nosemgrep
 		else:
 			req_params[row.key] = row.value
 

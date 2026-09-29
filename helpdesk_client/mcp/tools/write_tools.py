@@ -11,7 +11,7 @@ from helpdesk_client.mcp.tools import register_tool
 def set_value(doctype, name, fieldname, value, **_kwargs):
 	"""Set a single field value on a document."""
 	frappe.set_value(doctype, name, fieldname, value)
-	frappe.db.commit()
+	frappe.db.commit()  # each MCP write tool call is its own unit of work - nosemgrep
 	return frappe.as_json(
 		{
 			"status": "success",
@@ -32,7 +32,7 @@ def set_values(doctype, name, values, **_kwargs):
 	doc = frappe.get_doc(doctype, name)
 	doc.update(values)
 	doc.save()
-	frappe.db.commit()
+	frappe.db.commit()  # each MCP write tool call is its own unit of work - nosemgrep
 	return frappe.as_json(
 		{
 			"status": "success",
@@ -52,7 +52,7 @@ def create_doc(doctype, values, **_kwargs):
 	values["doctype"] = doctype
 	doc = frappe.get_doc(values)
 	doc.insert()
-	frappe.db.commit()
+	frappe.db.commit()  # each MCP write tool call is its own unit of work - nosemgrep
 	return frappe.as_json(
 		{
 			"status": "created",
@@ -65,7 +65,7 @@ def create_doc(doctype, values, **_kwargs):
 def delete_doc(doctype, name, **_kwargs):
 	"""Delete a document."""
 	frappe.delete_doc(doctype, name)
-	frappe.db.commit()
+	frappe.db.commit()  # each MCP write tool call is its own unit of work - nosemgrep
 	return frappe.as_json(
 		{
 			"status": "deleted",
@@ -94,11 +94,11 @@ def run_doc_method(doctype, name, method, args=None, **_kwargs):
 
 	fn = getattr(doc, method, None)
 	if not callable(fn):
-		frappe.throw("Method %s not found on %s" % (method, doctype))
+		frappe.throw(f"Method {method} not found on {doctype}")
 
 	is_whitelisted = getattr(fn, "__func__", fn) in frappe.whitelisted
 	if method not in ALLOWED_DOC_METHODS and not is_whitelisted:
-		frappe.throw("Method '%s' is not permitted via MCP" % method, frappe.PermissionError)
+		frappe.throw(f"Method '{method}' is not permitted via MCP", frappe.PermissionError)
 
 	if args:
 		if isinstance(args, str):
@@ -108,7 +108,7 @@ def run_doc_method(doctype, name, method, args=None, **_kwargs):
 		result = fn(**args)
 	else:
 		result = fn()
-	frappe.db.commit()
+	frappe.db.commit()  # each MCP write tool call is its own unit of work - nosemgrep
 	return frappe.as_json(
 		{
 			"status": "success",

@@ -39,8 +39,15 @@ genie.setup_ticket_launcher = function () {
 	};
 
 	const actions = [
-		mk("genie-raise-ticket-btn", __("Raise a Ticket"), "76px", () => new genie.SupportTicket()),
-		mk("genie-my-tickets-btn", __("My Tickets"), "116px", () => frappe.set_route("List", "Support Ticket")),
+		mk(
+			"genie-raise-ticket-btn",
+			__("Raise a Ticket"),
+			"76px",
+			() => new genie.SupportTicket()
+		),
+		mk("genie-my-tickets-btn", __("My Tickets"), "116px", () =>
+			frappe.set_route("List", "Support Ticket")
+		),
 	];
 
 	const fab = document.createElement("button");

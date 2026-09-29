@@ -31,17 +31,17 @@ genie.SupportTicket = class SupportTicket {
 					fieldname: "ticket_title",
 					label: __("Title"),
 					fieldtype: "Data",
-					reqd: 1
+					reqd: 1,
 				},
 				{
 					fieldname: "ticket_description",
 					label: __("Description"),
 					fieldtype: "Text Editor",
-					reqd: 1
+					reqd: 1,
 				},
 				{
 					fieldtype: "Section Break",
-					label: __("Screen Recording")
+					label: __("Screen Recording"),
 				},
 				{
 					fieldname: "record_screen",
@@ -53,7 +53,7 @@ genie.SupportTicket = class SupportTicket {
 						} else {
 							this.startRecording();
 						}
-					}
+					},
 				},
 				{ fieldtype: "Column Break" },
 				{
@@ -63,7 +63,7 @@ genie.SupportTicket = class SupportTicket {
 					hidden: 1,
 					click: () => {
 						window.open(genie.blobURL, "_blank");
-					}
+					},
 				},
 				{
 					fieldname: "clear_recording",
@@ -74,7 +74,7 @@ genie.SupportTicket = class SupportTicket {
 						if (this.recorder && this.recorder.state == "recording") {
 							frappe.show_alert({
 								indicator: "red",
-								message: __("Please stop the recording before clearing.")
+								message: __("Please stop the recording before clearing."),
 							});
 							return;
 						}
@@ -83,45 +83,45 @@ genie.SupportTicket = class SupportTicket {
 						genie.blob = null;
 						genie.blobURL = null;
 
-						this.dialog.set_df_property("record_screen", "label", "Start Recording")
+						this.dialog.set_df_property("record_screen", "label", "Start Recording");
 						this.dialog.set_df_property("view_recording", "hidden", 1);
 						this.dialog.set_df_property("clear_recording", "hidden", 1);
 
 						frappe.show_alert({
 							indicator: "green",
-							message: __("Screen recording have been cleared.")
+							message: __("Screen recording have been cleared."),
 						});
-					}
+					},
 				},
 				{
 					fieldtype: "Section Break",
-					label: __("Screenshots")
+					label: __("Screenshots"),
 				},
 				{
 					fieldname: "capture_screenshot",
 					label: __("Capture Screenshot"),
 					fieldtype: "Button",
-					click: () => this.captureScreenshot()
+					click: () => this.captureScreenshot(),
 				},
 				{ fieldtype: "Column Break" },
 				{
 					fieldname: "add_images",
 					label: __("Add Images"),
 					fieldtype: "Button",
-					click: () => this.pickImages()
+					click: () => this.pickImages(),
 				},
 				{ fieldtype: "Section Break" },
 				{
 					fieldname: "screenshot_list",
-					fieldtype: "HTML"
-				}
+					fieldtype: "HTML",
+				},
 			],
 			primary_action_label: __("Raise Ticket"),
 			primary_action: (values) => {
 				if (this.recorder && this.recorder.state == "recording") {
 					frappe.show_alert({
 						indicator: "red",
-						message: __("Please stop the recording before raising the ticket.")
+						message: __("Please stop the recording before raising the ticket."),
 					});
 					return;
 				}
@@ -132,13 +132,13 @@ genie.SupportTicket = class SupportTicket {
 				if (this.recorder && this.recorder.state == "recording") {
 					frappe.show_alert({
 						indicator: "red",
-						message: __("Please stop the recording before cancelling.")
+						message: __("Please stop the recording before cancelling."),
 					});
 					return;
 				}
 				this.end_tour();
 				this.dialog.hide();
-			}
+			},
 		});
 
 		this.dialog.$wrapper.find(".modal-dialog").css("z-index", 1);
@@ -172,7 +172,7 @@ genie.SupportTicket = class SupportTicket {
 	setIndicator(indicator) {
 		this.dialog.header
 			.find(".indicator")
-			.css({ width: "1rem", height: '1rem'})
+			.css({ width: "1rem", height: "1rem" })
 			.removeClass()
 			.addClass("indicator " + (indicator || "hidden"));
 	}
@@ -186,13 +186,13 @@ genie.SupportTicket = class SupportTicket {
 			frappe.show_alert({
 				indicator: "yellow",
 				message: __("Raising ticket. Please wait..."),
-			})
+			});
 			screen_recording = await genie.UploadFile(genie.blob).catch(() => null);
 			if (!screen_recording) {
 				frappe.show_alert({
 					indicator: "red",
 					message: __("Error raising ticket. Please try again."),
-				})
+				});
 				this.inUpload = false;
 				return;
 			}
@@ -217,10 +217,10 @@ genie.SupportTicket = class SupportTicket {
 			method: "helpdesk_client.utils.support.create_ticket",
 			type: "POST",
 			args: {
-				"title": values.ticket_title,
-				"description": values.ticket_description,
-				"screen_recording": screen_recording,
-				"screenshots": JSON.stringify(screenshot_urls)
+				title: values.ticket_title,
+				description: values.ticket_description,
+				screen_recording: screen_recording,
+				screenshots: JSON.stringify(screenshot_urls),
 			},
 			freeze: true,
 			freeze_message: __("Creating ticket..."),
@@ -235,11 +235,17 @@ genie.SupportTicket = class SupportTicket {
 					// No Helpdesk ID yet — support picks the ticket up on its
 					// next cycle and the ID lands on the local record.
 					frappe.msgprint(
-						__("Your ticket {0} has been submitted and will be picked up by support shortly. You will be notified as it progresses.",
-							[`<a href="/app/support-ticket/${encodeURIComponent(r.message)}">${r.message}</a>`])
-					)
+						__(
+							"Your ticket {0} has been submitted and will be picked up by support shortly. You will be notified as it progresses.",
+							[
+								`<a href="/app/support-ticket/${encodeURIComponent(r.message)}">${
+									r.message
+								}</a>`,
+							]
+						)
+					);
 				}
-			}
+			},
 		});
 	}
 
@@ -290,17 +296,23 @@ genie.SupportTicket = class SupportTicket {
 			{
 				el: () => d.get_field("record_screen").$wrapper[0],
 				title: __("3. Screen Recording (optional)"),
-				text: __("Record your screen while you reproduce the issue — support sees exactly what you see."),
+				text: __(
+					"Record your screen while you reproduce the issue — support sees exactly what you see."
+				),
 			},
 			{
 				el: () => d.get_field("capture_screenshot").$wrapper[0],
 				title: __("4. Screenshots (optional)"),
-				text: __("Capture your screen as images, or attach existing ones. Add as many as you need."),
+				text: __(
+					"Capture your screen as images, or attach existing ones. Add as many as you need."
+				),
 			},
 			{
 				el: () => d.get_primary_btn()[0],
 				title: __("5. Raise Ticket"),
-				text: __("Submit! Support picks it up within minutes — you'll get a notification as it progresses."),
+				text: __(
+					"Submit! Support picks it up within minutes — you'll get a notification as it progresses."
+				),
 			},
 		].filter((step) => {
 			try {
@@ -352,15 +364,33 @@ genie.SupportTicket = class SupportTicket {
 			pop.innerHTML = `
 				<div style="font-weight:600; margin-bottom:4px;">${step.title}</div>
 				<div style="margin-bottom:10px;">${step.text}</div>
-				${last ? `<label style="display:flex; gap:6px; align-items:center; margin-bottom:10px; font-size: var(--text-sm);">
+				${
+					last
+						? `<label style="display:flex; gap:6px; align-items:center; margin-bottom:10px; font-size: var(--text-sm);">
 					<input type="checkbox" id="genie-tour-again" checked> ${__("Show this tour next time")}
-				</label>` : ""}
+				</label>`
+						: ""
+				}
 				<div style="display:flex; justify-content:space-between; align-items:center;">
 					<span style="color:var(--text-muted); font-size:var(--text-sm);">${i + 1}/${steps.length}</span>
 					<span>
-						${i > 0 ? `<button type="button" class="btn btn-default btn-xs" data-act="back">${__("Back")}</button>` : ""}
-						<button type="button" class="btn btn-primary btn-xs" data-act="next">${last ? __("Done") : __("Next")}</button>
-						${last ? "" : `<button type="button" class="btn btn-default btn-xs" data-act="skip">${__("Skip")}</button>`}
+						${
+							i > 0
+								? `<button type="button" class="btn btn-default btn-xs" data-act="back">${__(
+										"Back"
+								  )}</button>`
+								: ""
+						}
+						<button type="button" class="btn btn-primary btn-xs" data-act="next">${
+							last ? __("Done") : __("Next")
+						}</button>
+						${
+							last
+								? ""
+								: `<button type="button" class="btn btn-default btn-xs" data-act="skip">${__(
+										"Skip"
+								  )}</button>`
+						}
 					</span>
 				</div>`;
 
@@ -453,7 +483,9 @@ genie.SupportTicket = class SupportTicket {
 			const $thumb = $(`
 				<div style="display:inline-block; position:relative; margin:4px;">
 					<img src="${url}" style="height:64px; border-radius:4px; border:1px solid var(--border-color);">
-					<span data-idx="${i}" title="${__("Remove")}" style="position:absolute; top:-6px; right:-6px; cursor:pointer; background:var(--bg-color); border:1px solid var(--border-color); border-radius:50%; width:18px; height:18px; line-height:16px; text-align:center; font-size:11px;">&times;</span>
+					<span data-idx="${i}" title="${__(
+				"Remove"
+			)}" style="position:absolute; top:-6px; right:-6px; cursor:pointer; background:var(--bg-color); border:1px solid var(--border-color); border-radius:50%; width:18px; height:18px; line-height:16px; text-align:center; font-size:11px;">&times;</span>
 				</div>`);
 			$thumb.find("span").on("click", () => {
 				this.screenshots.splice(i, 1);
@@ -466,7 +498,7 @@ genie.SupportTicket = class SupportTicket {
 	async setupStream() {
 		try {
 			this.stream = await navigator.mediaDevices.getDisplayMedia({
-				video: true
+				video: true,
 			});
 
 			this.audio = await navigator.mediaDevices.getUserMedia({
@@ -477,7 +509,7 @@ genie.SupportTicket = class SupportTicket {
 				},
 			});
 		} catch (err) {
-			console.error(err)
+			console.error(err);
 		}
 	}
 
@@ -486,7 +518,10 @@ genie.SupportTicket = class SupportTicket {
 
 		if (this.stream && this.audio) {
 			genie.chunks = [];
-			this.mixedStream = new MediaStream([...this.stream.getTracks(), ...this.audio.getTracks()]);
+			this.mixedStream = new MediaStream([
+				...this.stream.getTracks(),
+				...this.audio.getTracks(),
+			]);
 			this.recorder = new MediaRecorder(this.mixedStream);
 			this.recorder.ondataavailable = (e) => {
 				genie.chunks.push(e.data);
@@ -503,11 +538,12 @@ genie.SupportTicket = class SupportTicket {
 			// Stop cleanly when the user ends it from the browser's own
 			// "Stop sharing" bar instead of our button.
 			const track = this.stream.getVideoTracks()[0];
-			track && track.addEventListener("ended", () => {
-				if (this.recorder && this.recorder.state === "recording") {
-					this.stopRecording();
-				}
-			});
+			track &&
+				track.addEventListener("ended", () => {
+					if (this.recorder && this.recorder.state === "recording") {
+						this.stopRecording();
+					}
+				});
 
 			// Get out of the user's way: minimize the dialog so they can
 			// reproduce the issue anywhere in the app while recording.
@@ -517,10 +553,10 @@ genie.SupportTicket = class SupportTicket {
 			}
 			this.show_recording_pill();
 		} else {
-			console.warn('No stream available.');
+			console.warn("No stream available.");
 			frappe.show_alert({
 				indicator: "red",
-				message: __("Error starting screen recording. Please try again.")
+				message: __("Error starting screen recording. Please try again."),
 			});
 		}
 	}
@@ -529,7 +565,7 @@ genie.SupportTicket = class SupportTicket {
 		this.recorder.stop();
 		this.hide_recording_pill();
 		this.setIndicator();
-		this.dialog.set_df_property("record_screen", "label", "Start Recording")
+		this.dialog.set_df_property("record_screen", "label", "Start Recording");
 		this.dialog.set_df_property("view_recording", "hidden", 0);
 		this.dialog.set_df_property("clear_recording", "hidden", 0);
 
@@ -539,8 +575,10 @@ genie.SupportTicket = class SupportTicket {
 		}
 		frappe.show_alert({
 			indicator: "green",
-			message: __(`Recording captured. Review it with "View Recording", then raise the ticket.`)
-		})
+			message: __(
+				`Recording captured. Review it with "View Recording", then raise the ticket.`
+			),
+		});
 	}
 
 	show_recording_pill() {
@@ -636,8 +674,14 @@ genie.SupportTicket = class SupportTicket {
 			const dy = e.clientY - rect.top;
 			pill.style.transform = "none";
 			const move = (ev) => {
-				pill.style.left = `${Math.max(8, Math.min(ev.clientX - dx, window.innerWidth - rect.width - 8))}px`;
-				pill.style.top = `${Math.max(8, Math.min(ev.clientY - dy, window.innerHeight - rect.height - 8))}px`;
+				pill.style.left = `${Math.max(
+					8,
+					Math.min(ev.clientX - dx, window.innerWidth - rect.width - 8)
+				)}px`;
+				pill.style.top = `${Math.max(
+					8,
+					Math.min(ev.clientY - dy, window.innerHeight - rect.height - 8)
+				)}px`;
 			};
 			const up = () => {
 				pill.style.cursor = "grab";
@@ -668,17 +712,20 @@ genie.SupportTicket = class SupportTicket {
 		if (totalSize >= this.maxFileSizeInBytes) {
 			frappe.show_alert({
 				indicator: "red",
-				message: __("Screen recording size has exceeded the maximum allowed size. Recording has been stopped.")
+				message: __(
+					"Screen recording size has exceeded the maximum allowed size. Recording has been stopped."
+				),
 			});
 			this.stopRecording();
 			return;
 		}
 
-
 		if (totalSize >= this.nextWarningSize) {
 			frappe.show_alert({
 				indicator: "yellow",
-				message: __(`Screen recording size has exceeded ${(totalSize / (1024 * 1024)).toFixed(1)}MB.`)
+				message: __("Screen recording size has exceeded {0}MB.", [
+					(totalSize / (1024 * 1024)).toFixed(1),
+				]),
 			});
 			this.nextWarningSize += this.sizeWarning;
 		}
@@ -686,10 +733,10 @@ genie.SupportTicket = class SupportTicket {
 
 	handleStop(e) {
 		// MediaRecorder emits WebM — label it honestly so players don't choke.
-		genie.blob = new Blob(genie.chunks, { 'type': 'video/webm' });
+		genie.blob = new Blob(genie.chunks, { type: "video/webm" });
 		genie.blobURL = URL.createObjectURL(genie.blob);
 
 		this.stream.getTracks().forEach((track) => track.stop());
 		this.audio && this.audio.getTracks().forEach((track) => track.stop());
 	}
-}
+};

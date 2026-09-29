@@ -10,6 +10,7 @@ Supports three auth methods:
 """
 
 import frappe
+from frappe import _
 from frappe.utils.password import get_decrypted_password
 
 
@@ -21,11 +22,11 @@ def authenticate_request():
 	"""
 	auth_header = frappe.get_request_header("Authorization")
 	if not auth_header:
-		frappe.throw("Missing Authorization header", frappe.AuthenticationError)
+		frappe.throw(_("Missing Authorization header"), frappe.AuthenticationError)
 
 	parts = auth_header.split(" ", 1)
 	if len(parts) != 2:
-		frappe.throw("Invalid Authorization header format", frappe.AuthenticationError)
+		frappe.throw(_("Invalid Authorization header format"), frappe.AuthenticationError)
 
 	auth_type = parts[0].lower()
 	credentials = parts[1]
@@ -39,25 +40,25 @@ def authenticate_request():
 		else:
 			return _authenticate_oauth_bearer(credentials)
 	else:
-		frappe.throw("Unsupported auth type: %s" % auth_type, frappe.AuthenticationError)
+		frappe.throw(_("Unsupported auth type: {0}").format(auth_type), frappe.AuthenticationError)
 
 
 def _authenticate_token(credentials):
 	"""Authenticate using api_key:api_secret format."""
 	if ":" not in credentials:
-		frappe.throw("Credentials must be in format api_key:api_secret", frappe.AuthenticationError)
+		frappe.throw(_("Credentials must be in format api_key:api_secret"), frappe.AuthenticationError)
 
 	api_key, api_secret = credentials.split(":", 1)
 
 	user = frappe.db.get_value("User", {"api_key": api_key, "enabled": True}, "name")
 	if not user:
-		frappe.throw("Invalid API key", frappe.AuthenticationError)
+		frappe.throw(_("Invalid API key"), frappe.AuthenticationError)
 
 	stored_secret = get_decrypted_password("User", user, fieldname="api_secret", raise_exception=False)
 	if not stored_secret or api_secret != stored_secret:
-		frappe.throw("Invalid API secret", frappe.AuthenticationError)
+		frappe.throw(_("Invalid API secret"), frappe.AuthenticationError)
 
-	frappe.set_user(user)
+	frappe.set_user(user)  # runs only after the api_key/secret pair is verified - nosemgrep
 	return user
 
 
@@ -75,18 +76,18 @@ def _authenticate_oauth_bearer(token):
 		)
 
 		if not token_doc:
-			frappe.throw("Invalid or expired OAuth token", frappe.AuthenticationError)
+			frappe.throw(_("Invalid or expired OAuth token"), frappe.AuthenticationError)
 
 		# Check expiry
 		from frappe.utils import now_datetime
 
 		if token_doc.expiration_time and now_datetime() > token_doc.expiration_time:
-			frappe.throw("OAuth token expired", frappe.AuthenticationError)
+			frappe.throw(_("OAuth token expired"), frappe.AuthenticationError)
 
-		frappe.set_user(token_doc.user)
+		frappe.set_user(token_doc.user)  # runs only for an active, unexpired OAuth token - nosemgrep
 		return token_doc.user
 
 	except frappe.AuthenticationError:
 		raise
 	except Exception as e:
-		frappe.throw("OAuth authentication failed: %s" % str(e), frappe.AuthenticationError)
+		frappe.throw(_("OAuth authentication failed: {0}").format(str(e)), frappe.AuthenticationError)

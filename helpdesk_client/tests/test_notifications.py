@@ -10,12 +10,14 @@ class TestStatusNotifications(FrappeTestCase):
 	so the notification must hang off the document, not off a sync job."""
 
 	def make_ticket(self):
-		return frappe.get_doc({
-			"doctype": "Support Ticket",
-			"subject": "Printer offline",
-			"description": "<p>offline</p>",
-			"raised_by": "Administrator",
-		}).insert(ignore_permissions=True)
+		return frappe.get_doc(
+			{
+				"doctype": "Support Ticket",
+				"subject": "Printer offline",
+				"description": "<p>offline</p>",
+				"raised_by": "Administrator",
+			}
+		).insert(ignore_permissions=True)
 
 	def notification_count(self, doc):
 		return frappe.db.count(

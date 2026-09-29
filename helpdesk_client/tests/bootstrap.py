@@ -28,16 +28,12 @@ import frappe
 
 # Standard DocFields promoted to mandatory via a site Property Setter
 # that block Frappe's automatic `_Test Company` (etc.) creation.
-PS_BLOCKERS = (
-	("Company", "default_warehouse_for_sales_return"),
-)
+PS_BLOCKERS = (("Company", "default_warehouse_for_sales_return"),)
 
 # Mandatory Custom Fields installed by other apps (ksa_compliance's ZATCA
 # fields) that block the same bootstrap. These are Custom Field records,
 # not Property Setters, so they need their own relaxation pass.
-CF_BLOCKERS = (
-	("Mode of Payment", "custom_zatca_payment_means_code"),
-)
+CF_BLOCKERS = (("Mode of Payment", "custom_zatca_payment_means_code"),)
 
 
 def before_tests():
@@ -73,9 +69,7 @@ def relax_test_blocker_mandatory_fields():
 			continue
 
 		if str(frappe.db.get_value("Property Setter", ps_name, "value")) != "0":
-			frappe.db.set_value(
-				"Property Setter", ps_name, "value", "0", update_modified=False
-			)
+			frappe.db.set_value("Property Setter", ps_name, "value", "0", update_modified=False)
 			changed_doctypes.add(doctype)
 
 	for doctype in changed_doctypes:
@@ -93,9 +87,7 @@ def relax_test_blocker_custom_fields():
 	changed_doctypes = set()
 
 	for doctype, fieldname in CF_BLOCKERS:
-		cf_name = frappe.db.get_value(
-			"Custom Field", {"dt": doctype, "fieldname": fieldname}, "name"
-		)
+		cf_name = frappe.db.get_value("Custom Field", {"dt": doctype, "fieldname": fieldname}, "name")
 		if not cf_name:
 			continue
 

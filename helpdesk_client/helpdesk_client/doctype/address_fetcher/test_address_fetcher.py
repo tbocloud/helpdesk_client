@@ -6,6 +6,7 @@ import importlib
 import sys
 import types
 from contextlib import ExitStack
+from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
 import frappe
@@ -27,9 +28,7 @@ def fake_gstin_module(gstin_info_by_gstin):
 	gstin_info = types.ModuleType(GSTIN_INFO_PATH)
 	# deepcopy: create_address mutates the returned dict (address_data.pop),
 	# so never hand back the shared fixture object.
-	gstin_info.get_gstin_info = (
-		lambda gstin, throw_error=False: copy.deepcopy(gstin_info_by_gstin.get(gstin))
-	)
+	gstin_info.get_gstin_info = lambda gstin, throw_error=False: copy.deepcopy(gstin_info_by_gstin.get(gstin))
 	return {
 		"india_compliance": root,
 		"india_compliance.gst_india": gst_india,
@@ -120,7 +119,7 @@ class TestAddressFetcherValidation(FrappeTestCase):
 class TestCreateAddressLogic(FrappeTestCase):
 	"""Pure-logic tests: db writes and GSTIN lookups are stubbed out."""
 
-	GSTIN_DATA = {
+	GSTIN_DATA: ClassVar[dict] = {
 		"GSTIN1": {
 			"business_name": "Acme Traders",
 			"all_addresses": [
@@ -134,20 +133,18 @@ class TestCreateAddressLogic(FrappeTestCase):
 	def run_create_address(self, doc):
 		with ExitStack() as stack:
 			patch_gstin_lookup(stack, self.GSTIN_DATA)
-			stack.enter_context(
-				patch("frappe.model.document.Document.db_set", in_memory_db_set)
-			)
-			mock_add = stack.enter_context(
-				patch.object(type(doc), "add_address", MagicMock())
-			)
+			stack.enter_context(patch("frappe.model.document.Document.db_set", in_memory_db_set))
+			mock_add = stack.enter_context(patch.object(type(doc), "add_address", MagicMock()))
 			mock_enqueue = stack.enter_context(patch("frappe.enqueue_doc"))
 			doc.create_address()
 		return mock_add, mock_enqueue
 
 	def test_addresses_created_and_status_completed(self):
-		doc = make_fetcher([
-			{"party_type": "Customer", "party": "CUST-1", "gstin": "GSTIN1"},
-		])
+		doc = make_fetcher(
+			[
+				{"party_type": "Customer", "party": "CUST-1", "gstin": "GSTIN1"},
+			]
+		)
 		mock_add, mock_enqueue = self.run_create_address(doc)
 
 		self.assertEqual(mock_add.call_count, 2)
@@ -159,9 +156,11 @@ class TestCreateAddressLogic(FrappeTestCase):
 		mock_enqueue.assert_not_called()
 
 	def test_party_without_gstin_is_marked_fetched(self):
-		doc = make_fetcher([
-			{"party_type": "Customer", "party": "CUST-1", "gstin": ""},
-		])
+		doc = make_fetcher(
+			[
+				{"party_type": "Customer", "party": "CUST-1", "gstin": ""},
+			]
+		)
 		mock_add, _ = self.run_create_address(doc)
 		self.assertEqual(mock_add.call_count, 0)
 		self.assertEqual(doc.parties[0].fetched, 1)
@@ -170,29 +169,32 @@ class TestCreateAddressLogic(FrappeTestCase):
 	def test_gstin_without_addresses_still_completes(self):
 		# regression: rows with no address data used to leave the
 		# document stuck "In Process" forever
-		doc = make_fetcher([
-			{"party_type": "Customer", "party": "CUST-1", "gstin": "GSTIN-EMPTY"},
-			{"party_type": "Customer", "party": "CUST-2", "gstin": "GSTIN1"},
-		])
+		doc = make_fetcher(
+			[
+				{"party_type": "Customer", "party": "CUST-1", "gstin": "GSTIN-EMPTY"},
+				{"party_type": "Customer", "party": "CUST-2", "gstin": "GSTIN1"},
+			]
+		)
 		mock_add, _ = self.run_create_address(doc)
 		self.assertEqual(mock_add.call_count, 2)
 		self.assertEqual(doc.parties[0].fetched, 1)
 		self.assertEqual(doc.status, "Completed")
 
 	def test_batch_of_ten_requeues_instead_of_completing(self):
-		doc = make_fetcher([
-			{"party_type": "Customer", "party": f"CUST-{i}", "gstin": "GSTIN1"}
-			for i in range(12)
-		])
+		doc = make_fetcher(
+			[{"party_type": "Customer", "party": f"CUST-{i}", "gstin": "GSTIN1"} for i in range(12)]
+		)
 		_, mock_enqueue = self.run_create_address(doc)
 		mock_enqueue.assert_called_once()
 		self.assertEqual(doc.status, "In Process")
 		self.assertEqual(sum(1 for row in doc.parties if row.fetched), 10)
 
 	def test_already_fetched_rows_are_skipped(self):
-		doc = make_fetcher([
-			{"party_type": "Customer", "party": "CUST-1", "gstin": "GSTIN1", "fetched": 1},
-		])
+		doc = make_fetcher(
+			[
+				{"party_type": "Customer", "party": "CUST-1", "gstin": "GSTIN1", "fetched": 1},
+			]
+		)
 		mock_add, _ = self.run_create_address(doc)
 		self.assertEqual(mock_add.call_count, 0)
 		self.assertEqual(doc.status, "Completed")
