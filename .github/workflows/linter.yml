@@ -1,7 +1,9 @@
-
 name: Linters
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
 
@@ -9,27 +11,33 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   linter:
     name: 'Frappe Linter'
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # full history so Semgrep can diff against the previous commit on push
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: pip
-      - uses: pre-commit/action@v3.0.0
+      - uses: pre-commit/action@v3.0.1
 
       - name: Download Semgrep rules
         run: git clone --depth 1 https://github.com/frappe/semgrep-rules.git frappe-semgrep-rules
 
       - name: Run Semgrep rules
+        # Pull requests are diff-aware by default; on push, report only
+        # findings introduced since the previous commit.
+        env:
+          SEMGREP_BASELINE_REF: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: |
           pip install semgrep
           semgrep ci --config ./frappe-semgrep-rules/rules --config r/python.lang.correctness
@@ -46,7 +54,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Cache pip
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/*requirements.txt', '**/pyproject.toml', '**/setup.py') }}
