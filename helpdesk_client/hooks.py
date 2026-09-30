@@ -138,6 +138,9 @@ doc_events = {
 	"Comment": {
 		"after_insert": "helpdesk_client.helpdesk_client.doctype.support_ticket.support_ticket.notify_reply",
 	},
+	"Support Ticket": {
+		"after_insert": "helpdesk_client.utils.hub_ping.notify_hub",
+	},
 }
 
 permission_query_conditions = {
