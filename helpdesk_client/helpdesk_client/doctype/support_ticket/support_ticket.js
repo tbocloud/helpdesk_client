@@ -26,5 +26,11 @@ frappe.ui.form.on("Support Ticket", {
 		if (frm.doc.status === "Pending") {
 			frm.dashboard.set_headline(__("Submitted — support will pick this up shortly."));
 		}
+		if (frm.doc.ticket_id) {
+			frm.dashboard.add_indicator(
+				__("TBO Support ticket #{0}", [frm.doc.ticket_id]),
+				"blue"
+			);
+		}
 	},
 });
