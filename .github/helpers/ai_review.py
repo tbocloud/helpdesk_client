@@ -104,6 +104,7 @@ def pull_request_diff() -> str:
 def repository_rules() -> str:
     for name in ("AGENTS.md", "CLAUDE.md"):
         if os.path.exists(name):
+            # a fixed file name in this repository, not user input - nosemgrep
             with open(name, encoding="utf-8") as rules:
                 return rules.read()[:MAX_RULES_CHARS]
     return "(this repository has no AGENTS.md)"
@@ -170,11 +171,8 @@ def render(review: dict) -> str:
                 where += f":{finding['line']}"
             comment = str(finding.get("comment", "")).replace("|", "\\|").replace("\n", " ")
             lines.append(f"| {finding.get('severity', 'note')} | `{where}` | {comment} |")
-    lines += [
-        "",
-        f"_Model: {model_name()}. "
-        "A person still has to approve the merge._",
-    ]
+    footer = f"_Model: {model_name()}. A person still has to approve the merge._"
+    lines += ["", footer]
     return "\n".join(lines)
 
 
