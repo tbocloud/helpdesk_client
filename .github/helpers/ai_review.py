@@ -104,8 +104,7 @@ def pull_request_diff() -> str:
 def repository_rules() -> str:
     for name in ("AGENTS.md", "CLAUDE.md"):
         if os.path.exists(name):
-            # a fixed file name in this repository, not user input - nosemgrep
-            with open(name, encoding="utf-8") as rules:
+            with open(name, encoding="utf-8") as rules:  # repo's own file - nosemgrep
                 return rules.read()[:MAX_RULES_CHARS]
     return "(this repository has no AGENTS.md)"
 
