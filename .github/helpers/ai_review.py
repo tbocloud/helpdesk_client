@@ -8,6 +8,7 @@ A person still approves the merge; this catches problems before they look.
 
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -16,7 +17,11 @@ import urllib.request
 MARKER = "<!-- tbo-ai-review -->"
 MAX_DIFF_CHARS = 150_000
 MAX_RULES_CHARS = 20_000
-TIMEOUT = 300
+# Kimi thinks before it answers: give it room and time, as the hub's triage does
+TIMEOUT = 600
+MAX_ANSWER_TOKENS = 16_000
+DEFAULT_MODEL = "kimi-k2.6"
+DEFAULT_BASE_URL = "https://api.moonshot.ai/v1"
 # generated or vendored files a reviewer can't usefully read
 SKIP_PATHS = (
     ":(exclude)*.lock",
@@ -55,8 +60,8 @@ Reply with JSON only:
 
 
 def main() -> int:
-    if not os.environ.get("OPENAI_API_KEY"):
-        print("::notice::OPENAI_API_KEY is not set, so the AI review was skipped.")
+    if not os.environ.get("KIMI_API_KEY"):
+        print("::notice::KIMI_API_KEY is not set, so the AI review was skipped.")
         return 0
 
     diff = pull_request_diff()
@@ -106,7 +111,7 @@ def repository_rules() -> str:
 
 def ask_model(diff: str, rules: str) -> dict:
     body = {
-        "model": os.environ.get("AI_REVIEW_MODEL") or "gpt-5.6-luna",
+        "model": model_name(),
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
@@ -115,24 +120,37 @@ def ask_model(diff: str, rules: str) -> dict:
                 f"Pull request diff:\n\n{diff}",
             },
         ],
-        "response_format": {"type": "json_object"},
-        "max_completion_tokens": 8000,
+        "max_tokens": MAX_ANSWER_TOKENS,
     }
+    base_url = (os.environ.get("AI_REVIEW_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
     request = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
+        f"{base_url}/chat/completions",
         data=json.dumps(body).encode(),
         headers={
-            "Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}",
+            "Authorization": f"Bearer {os.environ['KIMI_API_KEY']}",
             "Content-Type": "application/json",
         },
     )
     with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-        answer = json.load(response)["choices"][0]["message"]["content"] or ""
-    review = json.loads(answer)
-    if not isinstance(review, dict) or "summary" not in review:
-        raise ValueError("the model's answer is not a review")
+        answer = json.load(response)["choices"][0]["message"].get("content") or ""
+    review = parse_review(answer)
     review.setdefault("findings", [])
     return review
+
+
+def parse_review(answer: str) -> dict:
+    """The JSON object in the answer; thinking models sometimes wrap it in prose or a code fence."""
+    match = re.search(r"\{.*\}", answer, re.S)
+    if not match:
+        raise ValueError("the model's answer has no JSON")
+    review = json.loads(match.group(0))
+    if not isinstance(review, dict) or "summary" not in review:
+        raise ValueError("the model's answer is not a review")
+    return review
+
+
+def model_name() -> str:
+    return os.environ.get("AI_REVIEW_MODEL") or DEFAULT_MODEL
 
 
 def render(review: dict) -> str:
@@ -154,7 +172,7 @@ def render(review: dict) -> str:
             lines.append(f"| {finding.get('severity', 'note')} | `{where}` | {comment} |")
     lines += [
         "",
-        f"_Model: {os.environ.get('AI_REVIEW_MODEL') or 'gpt-5.6-luna'}. "
+        f"_Model: {model_name()}. "
         "A person still has to approve the merge._",
     ]
     return "\n".join(lines)
