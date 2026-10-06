@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit reviews every pull request (it replaces the Kimi reviewer, tbocloud/ai-review).
+# Its approval counts as the required review, and .github/workflows/auto-merge.yml merges
+# once it approves and the checks pass, so a real problem must be a "request changes".
+language: en-US
+tone_instructions: "Be direct and specific. Name the file and line, say what breaks and for whom, and suggest the fix. Skip praise and style nitpicks the linters already catch."
+early_access: false
+
+reviews:
+  profile: chill
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  sequence_diagrams: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+  path_filters:
+    - "!helpdesk_client/public/**/*.min.js"
+    - "!**/yarn.lock"
+  path_instructions:
+    - path: "**/*"
+      instructions: |
+        Context you can't see in the diff:
+        - helpdesk_client is installed on TBO's customer ERP sites (Frappe v15, usually with
+          ERPNext). It connects the site to the TBO Support hub: support tickets, session
+          replay, and an MCP server the hub calls (helpdesk_client/mcp/).
+        - The hub initiates MCP connections with a connection code; access_control.py and the
+          allowed/blocked doctype lists decide what the hub's AI may read or write. Treat any
+          change that widens access, skips these checks, or lets write tools run when the
+          site has not turned on allow_write_operations (HDS Support Settings) as a blocker.
+        - Customer data must not leave the site except through the hub connection the
+          customer set up. Never log secrets, tokens or customer records.
+        - Only report a blocker when you can name the input that breaks it. Say "verify"
+          instead of "blocker" when it depends on code outside the diff.
+    - path: "helpdesk_client/**/*.py"
+      instructions: |
+        - Whitelisted methods need type hints; writes use methods=["POST"] and an explicit
+          permission check. allow_guest endpoints must authenticate the caller themselves.
+        - Prefer frappe.qb over raw SQL; never build SQL from request input.
+        - Pass str(e), not the exception, into a translated string's .format().
+        - Patches that insert data go after model sync; Singles' defaults only apply to new sites.

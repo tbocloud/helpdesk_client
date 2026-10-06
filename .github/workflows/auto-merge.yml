@@ -1,0 +1,38 @@
+name: Auto-merge
+
+# Every PR merges by itself once the main ruleset is satisfied: CodeRabbit
+# approves, and task-reference, Server tests and the linter pass.
+# A "changes requested" review blocks it until resolved. To keep a PR open,
+# add the "no-auto-merge" label (or click "Disable auto-merge" on the PR;
+# that holds until the PR is reopened or the label is added and removed).
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, labeled, unlabeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    # same-repo PRs only: a fork's token can't enable auto-merge. Label events
+    # count only for no-auto-merge, so an unrelated label change can't switch
+    # auto-merge back on after someone disabled it on the PR.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft &&
+      (!contains(fromJSON('["labeled","unlabeled"]'), github.event.action) ||
+       github.event.label.name == 'no-auto-merge')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable or disable auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.html_url }}
+          HOLD: ${{ contains(github.event.pull_request.labels.*.name, 'no-auto-merge') }}
+        run: |
+          if [ "$HOLD" = "true" ]; then
+            gh pr merge --disable-auto "$PR" || true
+          else
+            gh pr merge --auto --merge "$PR"
+          fi
