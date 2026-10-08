@@ -10,7 +10,10 @@ def set_bootinfo(bootinfo):
 	genie_settings = frappe.get_cached_doc("HDS Support Settings")
 	bootinfo["genie_support_enabled"] = genie_settings.enable_ticket_raising
 	bootinfo["genie_max_file_size"] = genie_settings.max_recording_size
-	bootinfo["genie_file_type"] = 1 if genie_settings.save_recording == "Private" else 0
+	# Recordings and screenshots show the customer's own screens, so they are
+	# always private. The Save Recording setting is kept for older sites but
+	# can no longer make them public.
+	bootinfo["genie_file_type"] = 1
 
 	# Left out entirely when off, so the desk loads none of the recorder.
 	replay = get_replay_bootinfo(genie_settings)

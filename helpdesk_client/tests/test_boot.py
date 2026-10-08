@@ -34,7 +34,8 @@ class TestSetBootinfo(FrappeTestCase):
 		set_bootinfo(bootinfo)
 		self.assertEqual(bootinfo["genie_support_enabled"], 1)
 		self.assertEqual(bootinfo["genie_max_file_size"], 50)
-		self.assertEqual(bootinfo["genie_file_type"], 0)
+		# recordings are always private, whatever Save Recording says
+		self.assertEqual(bootinfo["genie_file_type"], 1)
 
 	@patch("helpdesk_client.boot.frappe.get_cached_doc")
 	def test_private_recording_flag(self, mock_settings):

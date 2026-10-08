@@ -24,9 +24,12 @@ def after_install():
 
 
 def after_uninstall():
-	"""Disable the support user."""
+	"""Disable the support user and revoke the hub's keys."""
+	from helpdesk_client.api import revoke_support_keys
+
 	support_user = get_support_user()
 	if frappe.db.exists("User", support_user):
+		revoke_support_keys()
 		frappe.db.set_value("User", support_user, "enabled", 0)
 		frappe.db.commit()  # install hook: keep each setup step even if a later one fails - nosemgrep
 		print(f"Disabled user {support_user}")

@@ -218,7 +218,8 @@
    "fieldtype": "Select",
    "label": "Save Recording",
    "options": "Public\nPrivate",
-   "depends_on": "eval:doc.enable_ticket_raising"
+   "depends_on": "eval:doc.enable_ticket_raising",
+   "default": "Private"
   },
   {
    "depends_on": "enable_ticket_raising",

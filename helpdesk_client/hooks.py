@@ -228,6 +228,7 @@ before_tests = "helpdesk_client.tests.bootstrap.before_tests"
 
 # Request Events
 # ----------------
+before_request = ["helpdesk_client.hub_gate.before_request"]
 # after_request = ["helpdesk_client.utils.after_request"]
 
 # Job Events
