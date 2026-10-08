@@ -75,39 +75,28 @@ def delete_doc(doctype, name, **_kwargs):
 	)
 
 
-# Controller methods callable via run_doc_method without an explicit
-# @frappe.whitelist() decorator. Limited to permission-checked lifecycle
-# transitions. Direct field/status writes are intentionally excluded - use
-# set_value/set_values, which run validation and permission checks.
+# The only controller methods run_doc_method may call: the two lifecycle
+# transitions, each checked against the matching permission. Whitelisted
+# methods are not accepted any more: Document.rename and merge are
+# whitelisted on every doctype, and Bulk Update's method rewrites any
+# doctype with raw SQL, so "whitelisted" is not a safe boundary here.
 ALLOWED_DOC_METHODS = {"submit", "cancel"}
 
 
 def run_doc_method(doctype, name, method, args=None, **_kwargs):
-	"""Run a permitted method on a document.
+	"""Submit or cancel a document, with the calling user's permissions."""
+	if method not in ALLOWED_DOC_METHODS:
+		frappe.throw(
+			f"Method '{method}' is not permitted via MCP; only submit and cancel are",
+			frappe.PermissionError,
+		)
 
-	Only lifecycle methods (submit/cancel) or methods explicitly decorated
-	with @frappe.whitelist() may be invoked. The method executes with the
-	calling user's permissions - no permission bypass.
-	"""
 	doc = frappe.get_doc(doctype, name)
-	doc.check_permission("read")
-
-	fn = getattr(doc, method, None)
-	if not callable(fn):
-		frappe.throw(f"Method {method} not found on {doctype}")
-
-	is_whitelisted = getattr(fn, "__func__", fn) in frappe.whitelisted
-	if method not in ALLOWED_DOC_METHODS and not is_whitelisted:
-		frappe.throw(f"Method '{method}' is not permitted via MCP", frappe.PermissionError)
-
-	if args:
-		if isinstance(args, str):
-			import json
-
-			args = json.loads(args)
-		result = fn(**args)
+	doc.check_permission(method)
+	if method == "submit":
+		doc.submit()
 	else:
-		result = fn()
+		doc.cancel()
 	frappe.db.commit()  # each MCP write tool call is its own unit of work - nosemgrep
 	return frappe.as_json(
 		{
@@ -115,13 +104,13 @@ def run_doc_method(doctype, name, method, args=None, **_kwargs):
 			"doctype": doctype,
 			"name": name,
 			"method": method,
-			"result": str(result)[:500] if result else None,
+			"docstatus": doc.docstatus,
 		}
 	)
 
 
 def clear_cache(**_kwargs):
-	"""Clear the site cache."""
+	"""Clear the site cache. Gated by the write switch like every write tool."""
 	frappe.clear_cache()
 	return frappe.as_json({"status": "cache_cleared"})
 
@@ -189,14 +178,13 @@ register_tool(
 
 register_tool(
 	"run_doc_method",
-	description="Run a method on a document (e.g. submit, cancel, or custom methods).",
+	description="Submit or cancel a document. Only 'submit' and 'cancel' are permitted.",
 	input_schema={
 		"type": "object",
 		"properties": {
 			"doctype": {"type": "string", "description": "The DocType name"},
 			"name": {"type": "string", "description": "The document name/ID"},
-			"method": {"type": "string", "description": "Method name to call (e.g. 'submit', 'cancel')"},
-			"args": {"type": "object", "description": "Optional arguments to pass to the method"},
+			"method": {"type": "string", "enum": ["submit", "cancel"], "description": "'submit' or 'cancel'"},
 		},
 		"required": ["doctype", "name", "method"],
 	},

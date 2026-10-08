@@ -72,9 +72,11 @@ def attach_recording_file(ticket_name, file_url):
 	Hub's support user gets a 403 fetching it. Attached to the ticket, read
 	access flows from the ticket's permissions instead.
 	"""
+	# Only the caller's own unattached upload: another user's file must not be
+	# pulled into this ticket, where the ticket's readers could then open it.
 	file_name = frappe.db.get_value(
 		"File",
-		{"file_url": file_url, "attached_to_name": ("is", "not set")},
+		{"file_url": file_url, "attached_to_name": ("is", "not set"), "owner": frappe.session.user},
 		"name",
 	)
 	if file_name:

@@ -12,13 +12,13 @@ from helpdesk_client.support_user import get_support_user
 
 @frappe.whitelist(allow_guest=True)  # Hub daily ping runs unauthenticated; returns no secrets - nosemgrep
 def health_check():
-	"""Health check endpoint - used by Hub's daily ping."""
+	"""Health check endpoint - used by Hub's daily ping.
+
+	Says only whether support is enabled. The client id is not returned, so a
+	guest cannot learn which hub connection this site belongs to.
+	"""
 	settings = frappe.get_single("HDS Support Settings")
-	return {
-		"status": "ok" if settings.enabled else "disabled",
-		"site": frappe.local.site,
-		"client_id": settings.client_id or "",
-	}
+	return {"status": "ok" if settings.enabled else "disabled"}
 
 
 def _require_support_user():
@@ -31,7 +31,7 @@ def _require_support_user():
 		)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def register_connection(hub_url: str | None = None, client_id: str | None = None):
 	"""Hub-initiated connection handshake.
 
@@ -75,7 +75,7 @@ def register_connection(hub_url: str | None = None, client_id: str | None = None
 	}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def deregister():
 	"""Hub-initiated deregistration.
 
@@ -95,7 +95,7 @@ def deregister():
 	return {"status": "deregistered", "site": frappe.local.site}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def rotate_credentials(new_api_key: str | None = None, new_api_secret: str | None = None):
 	"""Hub-initiated credential rotation.
 
@@ -126,6 +126,7 @@ def rotate_credentials(new_api_key: str | None = None, new_api_secret: str | Non
 @frappe.whitelist()
 def get_support_status():
 	"""Get current support status for the site admin dashboard."""
+	frappe.only_for("System Manager")
 	settings = frappe.get_single("HDS Support Settings")
 	return {
 		"enabled": settings.enabled,
@@ -138,7 +139,7 @@ def get_support_status():
 	}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def generate_login_url():
 	"""Generate a one-time login URL for the support user.
 

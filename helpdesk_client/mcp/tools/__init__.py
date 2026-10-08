@@ -30,9 +30,25 @@ def get_tool_definitions() -> list[dict]:
 	]
 
 
+# Refusals the caller caused (no access, bad input, missing document). They are
+# answered as tool errors but never written to Error Log: logging them let the
+# AI read its own refusals back through get_error_log and buried real errors.
+EXPECTED_ERRORS = (
+	frappe.PermissionError,
+	frappe.ValidationError,
+	frappe.DoesNotExistError,
+	frappe.AuthenticationError,
+)
+
+
 def execute_tool(name: str, arguments: dict) -> dict:
 	"""Execute a tool and return MCP-formatted result."""
-	from helpdesk_client.mcp.access_control import check_doctype_access
+	from helpdesk_client.mcp.access_control import (
+		check_child_table_write,
+		check_doctype_access,
+		check_enabled,
+		check_write_enabled,
+	)
 
 	if name not in TOOL_REGISTRY:
 		return {
@@ -42,15 +58,26 @@ def execute_tool(name: str, arguments: dict) -> dict:
 
 	tool = TOOL_REGISTRY[name]
 	try:
-		# Check access control for doctype-based tools
+		# The switches apply to every tool, whether or not it names a doctype
+		check_enabled()
 		is_write = name in WRITE_TOOLS
-		if "doctype" in arguments:
-			check_doctype_access(arguments["doctype"], is_write=is_write)
+		if is_write:
+			check_write_enabled()
+		doctype = arguments.get("doctype")
+		if doctype:
+			check_doctype_access(doctype, is_write=is_write)
+			if is_write:
+				check_child_table_write(name, doctype, arguments)
 
 		result = tool["handler"](**arguments)
 		return {
 			"content": [{"type": "text", "text": result}],
 			"isError": False,
+		}
+	except EXPECTED_ERRORS as e:
+		return {
+			"content": [{"type": "text", "text": f"Error executing {name}: {e}"}],
+			"isError": True,
 		}
 	except Exception as e:
 		frappe.log_error(f"MCP tool error: {name}", str(e))

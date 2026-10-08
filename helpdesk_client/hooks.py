@@ -228,8 +228,6 @@ before_tests = "helpdesk_client.tests.bootstrap.before_tests"
 
 # Request Events
 # ----------------
-# OAuth discovery interceptor for /.well-known/oauth-authorization-server (needed for v15)
-before_request = ["helpdesk_client.mcp.oauth.before_request_handler"]
 # after_request = ["helpdesk_client.utils.after_request"]
 
 # Job Events
