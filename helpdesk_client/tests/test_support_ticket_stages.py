@@ -27,6 +27,8 @@ def make_user(email):
 
 
 def delete_error_logs(method):
+	# roll the test back first: this commit must carry nothing but the delete
+	frappe.db.rollback()
 	frappe.db.delete("Error Log", {"method": method})
 	frappe.db.commit()  # the rows were committed outside the test's transaction - nosemgrep
 

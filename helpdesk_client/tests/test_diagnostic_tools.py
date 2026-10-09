@@ -38,6 +38,8 @@ def make_error_log(test_case, method: str, **values):
 
 
 def _delete_error_logs(method: str):
+	# roll the test back first: this commit must carry nothing but the delete
+	frappe.db.rollback()
 	frappe.db.delete("Error Log", {"method": method})
 	frappe.db.commit()  # the rows were committed outside the test's transaction - nosemgrep
 
