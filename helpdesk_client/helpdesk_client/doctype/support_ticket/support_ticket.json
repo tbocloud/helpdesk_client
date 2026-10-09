@@ -15,7 +15,37 @@
   "priority",
   "screen_recording",
   "close_requested",
-  "last_synced"
+  "last_synced",
+  "progress_section",
+  "stage",
+  "stage_message",
+  "handled_by",
+  "status_label",
+  "column_break_progress",
+  "resolution",
+  "deployed_commit",
+  "deployed_at",
+  "updates_section",
+  "updates_html",
+  "update_rows_section",
+  "updates",
+  "confirmation_section",
+  "customer_confirmation",
+  "confirmation_note",
+  "confirmed_at",
+  "column_break_confirmation",
+  "reopen_requested",
+  "reopen_count",
+  "context_section",
+  "page_route",
+  "ref_doctype",
+  "ref_docname",
+  "raised_by_email",
+  "raised_by_name",
+  "column_break_context",
+  "user_roles",
+  "error_logs",
+  "code_identity"
  ],
  "fields": [
   {
@@ -99,11 +129,190 @@
    "fieldtype": "Datetime",
    "label": "Last Synced",
    "read_only": 1
+  },
+  {
+   "fieldname": "progress_section",
+   "fieldtype": "Section Break",
+   "label": "Progress"
+  },
+  {
+   "fieldname": "stage",
+   "fieldtype": "Select",
+   "label": "Stage",
+   "options": "\nReceived\nWorking on it\nFix scheduled\nResolved\nWith our team\nWaiting for you",
+   "in_standard_filter": 1,
+   "read_only": 1,
+   "description": "Where TBO Support is with this ticket. Updated by TBO."
+  },
+  {
+   "fieldname": "stage_message",
+   "fieldtype": "Small Text",
+   "label": "Latest Update",
+   "read_only": 1
+  },
+  {
+   "fieldname": "handled_by",
+   "fieldtype": "Data",
+   "label": "Handled By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status_label",
+   "fieldtype": "Data",
+   "label": "Status at TBO Support",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_progress",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "resolution",
+   "fieldtype": "Small Text",
+   "label": "Resolution",
+   "read_only": 1
+  },
+  {
+   "fieldname": "deployed_commit",
+   "fieldtype": "Data",
+   "label": "Deployed Commit",
+   "read_only": 1
+  },
+  {
+   "fieldname": "deployed_at",
+   "fieldtype": "Datetime",
+   "label": "Deployed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "updates_section",
+   "fieldtype": "Section Break",
+   "label": "Updates"
+  },
+  {
+   "fieldname": "updates_html",
+   "fieldtype": "HTML",
+   "label": "Updates Timeline"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "update_rows_section",
+   "fieldtype": "Section Break",
+   "label": "Update Rows"
+  },
+  {
+   "fieldname": "updates",
+   "fieldtype": "Table",
+   "label": "Updates",
+   "options": "Support Ticket Update",
+   "read_only": 1
+  },
+  {
+   "fieldname": "confirmation_section",
+   "fieldtype": "Section Break",
+   "label": "Your Confirmation"
+  },
+  {
+   "fieldname": "customer_confirmation",
+   "fieldtype": "Select",
+   "label": "Confirmation",
+   "options": "\nConfirmed\nReopened",
+   "read_only": 1
+  },
+  {
+   "fieldname": "confirmation_note",
+   "fieldtype": "Small Text",
+   "label": "Note",
+   "read_only": 1
+  },
+  {
+   "fieldname": "confirmed_at",
+   "fieldtype": "Datetime",
+   "label": "Confirmed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_confirmation",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "reopen_requested",
+   "fieldtype": "Check",
+   "label": "Reopen Requested",
+   "read_only": 1,
+   "description": "You said it is still broken; TBO Support reopens the ticket on its next cycle."
+  },
+  {
+   "default": "0",
+   "fieldname": "reopen_count",
+   "fieldtype": "Int",
+   "label": "Reopened Times",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "context_section",
+   "fieldtype": "Section Break",
+   "label": "Context"
+  },
+  {
+   "fieldname": "page_route",
+   "fieldtype": "Data",
+   "label": "Page",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ref_doctype",
+   "fieldtype": "Data",
+   "label": "Document Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ref_docname",
+   "fieldtype": "Data",
+   "label": "Document",
+   "read_only": 1
+  },
+  {
+   "fieldname": "raised_by_email",
+   "fieldtype": "Data",
+   "label": "Contact Email",
+   "options": "Email",
+   "read_only": 1
+  },
+  {
+   "fieldname": "raised_by_name",
+   "fieldtype": "Data",
+   "label": "Contact Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_context",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "user_roles",
+   "fieldtype": "Small Text",
+   "label": "User Roles",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error_logs",
+   "fieldtype": "Long Text",
+   "label": "Recent Errors",
+   "read_only": 1
+  },
+  {
+   "fieldname": "code_identity",
+   "fieldtype": "Long Text",
+   "label": "Apps and Versions",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-01 12:00:00.000000",
+ "modified": "2026-10-09 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Helpdesk Client",
  "name": "Support Ticket",
@@ -123,9 +332,8 @@
    "write": 1
   },
   {
-   "if_owner": 1,
    "read": 1,
-   "role": "Genie User"
+   "role": "All"
   }
  ],
  "sort_field": "modified",

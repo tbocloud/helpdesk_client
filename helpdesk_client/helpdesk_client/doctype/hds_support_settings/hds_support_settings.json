@@ -27,6 +27,7 @@
   "max_report_rows",
   "support_portal_section",
   "enable_ticket_raising",
+  "fallback_contact_email",
   "column_break_nuxg",
   "save_recording",
   "max_recording_size",
@@ -173,6 +174,14 @@
    "label": "Enable Ticket Raising"
   },
   {
+   "fieldname": "fallback_contact_email",
+   "fieldtype": "Data",
+   "options": "Email",
+   "label": "Fallback Contact Email",
+   "depends_on": "eval:doc.enable_ticket_raising",
+   "description": "Used as the contact email on a ticket when the person raising it has no email address (for example Administrator)."
+  },
+  {
    "fieldname": "ticket_details",
    "fieldtype": "Table",
    "label": "Ticket Details",
@@ -249,7 +258,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-30 12:00:00.000000",
+ "modified": "2026-10-09 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Helpdesk Client",
  "name": "HDS Support Settings",

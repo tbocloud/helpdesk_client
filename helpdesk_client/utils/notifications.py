@@ -25,3 +25,22 @@ def notify_status_change(doc, new_status):
 			"document_name": doc.name,
 		}
 	).insert(ignore_permissions=True)
+
+
+def notify_stage_change(doc):
+	"""Raise a desk notification for the reporter when TBO Support moves the ticket to a new stage."""
+	if not doc.raised_by or not doc.stage:
+		return
+
+	reference = doc.ticket_id or doc.name
+	frappe.get_doc(
+		{
+			"doctype": "Notification Log",
+			"for_user": doc.raised_by,
+			"type": "Alert",
+			"subject": _("Your support ticket #{0}: {1}").format(reference, _(doc.stage)),
+			"email_content": doc.stage_message or "",
+			"document_type": "Support Ticket",
+			"document_name": doc.name,
+		}
+	).insert(ignore_permissions=True)

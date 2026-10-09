@@ -8,6 +8,17 @@ genie.chunks = [];
 genie.blob = null;
 genie.blobURL = null;
 
+// Where the user is when they ask for help: the page and, on a form, the record.
+genie.capture_context = function () {
+	const route = frappe.get_route() || [];
+	const frm = route[0] === "Form" ? window.cur_frm : null;
+	return {
+		page_route: route.join("/").slice(0, 140),
+		ref_doctype: frm && frm.doctype ? frm.doctype : "",
+		ref_docname: frm && frm.docname && !frm.is_new() ? String(frm.docname) : "",
+	};
+};
+
 genie.SupportTicket = class SupportTicket {
 	constructor() {
 		if (!frappe.boot.genie_support_enabled) {
@@ -15,6 +26,7 @@ genie.SupportTicket = class SupportTicket {
 			return;
 		}
 		this.init_config();
+		this.context = genie.capture_context();
 		this.setup_dialog();
 		this.dialog.show();
 		this.maybe_start_tour();
@@ -261,6 +273,9 @@ genie.SupportTicket = class SupportTicket {
 				screenshots: JSON.stringify(screenshot_urls),
 				session_replay: replay_files.replay || null,
 				session_diagnostics: replay_files.diagnostics || null,
+				page_route: this.context.page_route,
+				ref_doctype: this.context.ref_doctype,
+				ref_docname: this.context.ref_docname,
 			},
 			freeze: true,
 			freeze_message: __("Creating ticket..."),
@@ -577,11 +592,18 @@ genie.SupportTicket = class SupportTicket {
 	}
 
 	async setupStream() {
+		this.stream = null;
+		this.audio = null;
 		try {
 			this.stream = await navigator.mediaDevices.getDisplayMedia(
 				genie.display_media_options()
 			);
-
+		} catch (err) {
+			console.error(err);
+			return;
+		}
+		// The microphone is optional: without one the screen is still recorded.
+		try {
 			this.audio = await navigator.mediaDevices.getUserMedia({
 				audio: {
 					echoCancellation: true,
@@ -590,18 +612,22 @@ genie.SupportTicket = class SupportTicket {
 				},
 			});
 		} catch (err) {
-			console.error(err);
+			console.warn("Recording without a microphone:", err && err.name);
+			frappe.show_alert({
+				indicator: "orange",
+				message: __("No microphone: recording the screen without sound."),
+			});
 		}
 	}
 
 	async startRecording() {
 		await this.setupStream();
 
-		if (this.stream && this.audio) {
+		if (this.stream) {
 			genie.chunks = [];
 			this.mixedStream = new MediaStream([
 				...this.stream.getTracks(),
-				...this.audio.getTracks(),
+				...(this.audio ? this.audio.getTracks() : []),
 			]);
 			this.recorder = genie.make_media_recorder(this.mixedStream);
 			this.recorder.ondataavailable = (e) => {

@@ -8,6 +8,7 @@ from frappe import _
 from frappe.utils import cint, flt
 from frappe.utils.safe_exec import get_safe_globals, safe_eval
 
+from helpdesk_client.utils.context import ticket_context
 from helpdesk_client.utils.session_replay import attach_session_files
 
 
@@ -19,6 +20,9 @@ def create_ticket(
 	screenshots: str | list | None = None,
 	session_replay: str | None = None,
 	session_diagnostics: str | None = None,
+	page_route: str = "",
+	ref_doctype: str = "",
+	ref_docname: str = "",
 ):
 	"""Record a support request locally.
 
@@ -38,6 +42,8 @@ def create_ticket(
 			"status": "Pending",
 			"raised_by": frappe.session.user,
 			"screen_recording": screen_recording,
+			# where the user was and who they are, so support can start from the right place
+			**ticket_context(settings, page_route, ref_doctype, ref_docname),
 		}
 	).insert(ignore_permissions=True)
 

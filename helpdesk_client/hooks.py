@@ -147,6 +147,10 @@ permission_query_conditions = {
 	"Support Ticket": "helpdesk_client.helpdesk_client.doctype.support_ticket.support_ticket.get_permission_query_conditions",
 }
 
+has_permission = {
+	"Support Ticket": "helpdesk_client.helpdesk_client.doctype.support_ticket.support_ticket.has_permission",
+}
+
 # Document Events
 # ---------------
 # Hook on document methods and events
