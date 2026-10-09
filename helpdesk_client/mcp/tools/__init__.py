@@ -8,13 +8,19 @@ TOOL_REGISTRY: dict[str, dict] = {}
 WRITE_TOOLS = {"set_value", "set_values", "create_doc", "delete_doc", "run_doc_method", "clear_cache"}
 
 
-def register_tool(name, *, description, input_schema, handler):
-	"""Register an MCP tool in the global registry."""
+def register_tool(name, *, description, input_schema, handler, doctype_args=("doctype",), write=None):
+	"""Register an MCP tool in the global registry.
+
+	`doctype_args` names every argument that holds a doctype (a name or a list
+	of names); each one is checked against the allowed and blocked lists.
+	"""
 	TOOL_REGISTRY[name] = {
 		"name": name,
 		"description": description,
 		"inputSchema": input_schema,
 		"handler": handler,
+		"doctype_args": tuple(doctype_args),
+		"write": name in WRITE_TOOLS if write is None else bool(write),
 	}
 
 
@@ -60,14 +66,17 @@ def execute_tool(name: str, arguments: dict) -> dict:
 	try:
 		# The switches apply to every tool, whether or not it names a doctype
 		check_enabled()
-		is_write = name in WRITE_TOOLS
+		is_write = tool["write"]
 		if is_write:
 			check_write_enabled()
+		for arg in tool["doctype_args"]:
+			value = arguments.get(arg)
+			for doctype in value if isinstance(value, list | tuple) else [value]:
+				if doctype:
+					check_doctype_access(doctype, is_write=is_write)
 		doctype = arguments.get("doctype")
-		if doctype:
-			check_doctype_access(doctype, is_write=is_write)
-			if is_write:
-				check_child_table_write(name, doctype, arguments)
+		if is_write and doctype:
+			check_child_table_write(name, doctype, arguments)
 
 		result = tool["handler"](**arguments)
 		return {

@@ -17,6 +17,7 @@ import frappe
 from werkzeug.wrappers import Response
 
 import helpdesk_client.mcp.tools.data_tools
+import helpdesk_client.mcp.tools.diagnostic_tools
 import helpdesk_client.mcp.tools.report_tools
 import helpdesk_client.mcp.tools.site_tools
 import helpdesk_client.mcp.tools.write_tools
@@ -94,13 +95,19 @@ def handle():
 	if method == "notifications/initialized":
 		return Response("", status=202)
 
-	# --- All other methods require a valid session ---
-	session_id = frappe.request.headers.get("Mcp-Session-Id")
-	if not session_id or not validate_session(session_id):
-		return _json_response(make_error(req_id, INVALID_REQUEST, "Invalid or missing session"), status=400)
+	# --- Every other request carries the hub's key again, checked again ---
+	try:
+		user = authenticate_request()
+	except frappe.AuthenticationError:
+		return _json_response(make_error(req_id, -32000, "Authentication failed"), status=401)
 
-	user = get_session_user(session_id)
-	frappe.set_user(user)  # session was created only after authenticate_request() - nosemgrep
+	if method == "ping":
+		return _json_response(make_response(req_id, {}))
+
+	# the session must be this user's: a session id on its own opens nothing
+	session_id = frappe.request.headers.get("Mcp-Session-Id")
+	if not session_id or not validate_session(session_id) or get_session_user(session_id) != user:
+		return _json_response(make_error(req_id, INVALID_REQUEST, "Invalid or missing session"), status=400)
 
 	# --- tools/list ---
 	if method == "tools/list":

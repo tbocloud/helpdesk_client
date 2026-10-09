@@ -94,21 +94,44 @@ def get_count(doctype: str, filters=None, **_kwargs) -> str:
 	return frappe.as_json({"doctype": doctype, "count": count})
 
 
-def get_error_log(method=None, limit: int = 20, **_kwargs) -> str:
-	"""Fetch recent error logs, optionally filtered by method."""
+def get_error_log(
+	method=None,
+	limit: int = 20,
+	since=None,
+	until=None,
+	reference_doctype=None,
+	reference_name=None,
+	**_kwargs,
+) -> str:
+	"""Recent error logs, filtered by method, time and document; each with the app it came from and its top frames."""
+	from helpdesk_client.mcp.tools.diagnostic_tools import app_of, top_frames
+
 	max_limit = get_settings_limit("max_error_log_limit", 50, ERROR_LOG_LIMIT_CEILING)
 	limit = min(int(limit), max_limit)
 	filters = {}
 	if method:
 		filters["method"] = ["like", f"%{method}%"]
+	if since and until:
+		filters["creation"] = ["between", [since, until]]
+	elif since:
+		filters["creation"] = [">=", since]
+	elif until:
+		filters["creation"] = ["<=", until]
+	if reference_doctype:
+		filters["reference_doctype"] = reference_doctype
+	if reference_name:
+		filters["reference_name"] = reference_name
 
 	result = frappe.get_list(
 		"Error Log",
 		filters=filters,
-		fields=["name", "method", "error", "creation"],
+		fields=["name", "method", "error", "creation", "reference_doctype", "reference_name"],
 		order_by="creation desc",
 		limit_page_length=limit,
 	)
+	for row in result:
+		row["app"] = app_of(row.get("error"))
+		row["top_frames"] = top_frames(row.get("error"))
 	return frappe.as_json(result, indent=2)
 
 
@@ -198,11 +221,15 @@ register_tool(
 
 register_tool(
 	"get_error_log",
-	description="Fetch recent Error Log entries, optionally filtered by method name. Useful for diagnosing background job failures or API errors.",
+	description="Fetch recent Error Log entries, filtered by method, time and document, with the app each came from and its top frames.",
 	input_schema={
 		"type": "object",
 		"properties": {
 			"method": {"type": "string", "description": "Filter by method name (partial match)"},
+			"since": {"type": "string", "description": "Only errors at or after this datetime"},
+			"until": {"type": "string", "description": "Only errors at or before this datetime"},
+			"reference_doctype": {"type": "string", "description": "Only errors about this doctype"},
+			"reference_name": {"type": "string", "description": "Only errors about this document"},
 			"limit": {
 				"type": "integer",
 				"description": "Max results. Capped by HDS Support Settings -> Max Error Log Limit. Default: 20",
@@ -210,4 +237,5 @@ register_tool(
 		},
 	},
 	handler=get_error_log,
+	doctype_args=(),
 )

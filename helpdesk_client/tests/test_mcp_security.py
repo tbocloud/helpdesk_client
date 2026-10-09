@@ -3,12 +3,14 @@
 
 """The MCP endpoint answers only the hub, and its tools stay inside the switches."""
 
+import json
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-import helpdesk_client.mcp.handler  # noqa: F401  (registers the tool modules)
+from helpdesk_client.mcp import handler  # also registers the tool modules
 from helpdesk_client.mcp.auth import authenticate_request
 from helpdesk_client.mcp.tools import execute_tool
 
@@ -123,3 +125,49 @@ class TestToolSwitches(FrappeTestCase):
 		info = json.loads(execute_tool("get_site_info", {})["content"][0]["text"])
 		expected = not frappe.utils.scheduler.is_scheduler_inactive()
 		self.assertEqual(info["scheduler_enabled"], expected)
+
+
+class TestHandlerChecksEveryRequest(FrappeTestCase):
+	def setUp(self):
+		self.addCleanup(frappe.db.rollback)
+		self.addCleanup(frappe.set_user, "Administrator")
+		previous = getattr(frappe.local, "request", None)
+		self.addCleanup(setattr, frappe.local, "request", previous)
+		frappe.db.set_single_value("HDS Support Settings", "support_user", OTHER_USER)
+		self.key, self.secret = make_user_with_keys(OTHER_USER)
+
+	def post(self, body, authorization=None, session=None):
+		headers = {}
+		if authorization:
+			headers["Authorization"] = authorization
+		if session:
+			headers["Mcp-Session-Id"] = session
+		data = json.dumps(body).encode()
+		frappe.local.request = SimpleNamespace(method="POST", headers=headers, get_data=lambda *a, **k: data)
+		return handler.handle()
+
+	def own_key(self):
+		return f"Token {self.key}:{self.secret}"
+
+	def test_ping_answers_once_the_key_is_checked(self):
+		response = self.post({"jsonrpc": "2.0", "id": 1, "method": "ping"}, self.own_key())
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(json.loads(response.get_data())["result"], {})
+		self.assertEqual(self.post({"jsonrpc": "2.0", "id": 1, "method": "ping"}).status_code, 401)
+
+	def test_a_session_id_alone_opens_nothing(self):
+		init = self.post({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}, self.own_key())
+		session = init.headers["Mcp-Session-Id"]
+		listed = self.post({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, self.own_key(), session)
+		self.assertEqual(listed.status_code, 200)
+		self.assertEqual(self.post({"jsonrpc": "2.0", "id": 3, "method": "tools/list"}, None, session).status_code, 401)
+
+		# another hub user's key cannot ride on this user's session
+		frappe.set_user("Administrator")  # the handler left the hub's user in place
+		if not frappe.db.exists("Role", "TBO Support Hub"):
+			frappe.get_doc({"doctype": "Role", "role_name": "TBO Support Hub", "desk_access": 0}).insert(ignore_permissions=True)
+		other = "mcp-other-hub-user@example.com"
+		other_key, other_secret = make_user_with_keys(other)
+		frappe.get_doc("User", other).add_roles("TBO Support Hub")
+		borrowed = self.post({"jsonrpc": "2.0", "id": 4, "method": "tools/list"}, f"Token {other_key}:{other_secret}", session)
+		self.assertEqual(borrowed.status_code, 400)
