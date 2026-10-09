@@ -10,7 +10,8 @@
   "stage",
   "message",
   "author_name",
-  "hub_ref"
+  "hub_ref",
+  "comment"
  ],
  "fields": [
   {
@@ -55,11 +56,18 @@
    "label": "Hub Reference",
    "reqd": 1,
    "description": "Set by TBO Support; the same reference is never added twice"
+  },
+  {
+   "fieldname": "comment",
+   "fieldtype": "Link",
+   "label": "Comment",
+   "options": "Comment",
+   "description": "The comment that carries a reply"
   }
  ],
  "istable": 1,
  "links": [],
- "modified": "2026-10-09 12:00:00.000000",
+ "modified": "2026-10-09 13:00:00.000000",
  "modified_by": "Administrator",
  "module": "Helpdesk Client",
  "name": "Support Ticket Update",

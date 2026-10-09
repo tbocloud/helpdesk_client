@@ -66,12 +66,16 @@ def register_connection(hub_url: str | None = None, client_id: str | None = None
 	settings.save(ignore_permissions=True)
 	frappe.db.commit()  # the Hub reads the reply as confirmation, so persist first - nosemgrep
 
+	from helpdesk_client.hub_api import capabilities_info
+
 	return {
 		"status": "registered",
 		"site": frappe.local.site,
 		"client_id": client_id,
 		# the Hub stores this so it knows which user's actions are its own
 		"support_user": get_support_user(),
+		# and what this client can do, so it picks the hub_api path when it can
+		**capabilities_info(),
 	}
 
 
