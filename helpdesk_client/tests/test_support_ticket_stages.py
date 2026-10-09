@@ -26,6 +26,11 @@ def make_user(email):
 	return email
 
 
+def delete_error_logs(method):
+	frappe.db.delete("Error Log", {"method": method})
+	frappe.db.commit()  # the rows were committed outside the test's transaction - nosemgrep
+
+
 def make_ticket(owner=OWNER, raised_by=RAISER, **values):
 	"""A ticket `owner` created, raised for `raised_by` (both plain users without any role)."""
 	frappe.set_user(owner)
@@ -141,7 +146,10 @@ class TestContextCapture(StageCase):
 	@patch("helpdesk_client.utils.support.frappe.get_cached_doc")
 	def test_create_ticket_records_where_the_user_was(self, mock_settings):
 		mock_settings.return_value = self.settings()
-		frappe.get_doc({"doctype": "Error Log", "method": "sales_invoice.validate", "error": "IndexError: boom"}).insert(
+		method = f"sales_invoice.validate_{frappe.generate_hash(length=6)}"
+		# Frappe keeps Error Logs through a rollback, so the test deletes its own
+		self.addCleanup(delete_error_logs, method)
+		frappe.get_doc({"doctype": "Error Log", "method": method, "error": "IndexError: boom"}).insert(
 			ignore_permissions=True
 		)
 		name = create_ticket(
@@ -157,7 +165,7 @@ class TestContextCapture(StageCase):
 		self.assertEqual(doc.page_route, "Form/Sales Invoice/ACC-SINV-2026-00042")
 		self.assertIn("System Manager", json.loads(doc.user_roles))
 		errors = json.loads(doc.error_logs)
-		self.assertEqual(errors[0]["method"], "sales_invoice.validate")
+		self.assertEqual(errors[0]["method"], method)
 		self.assertTrue(any(app["app"] == "helpdesk_client" for app in json.loads(doc.code_identity)))
 		# Administrator has no email address, so the site's fallback contact is used
 		self.assertEqual(doc.raised_by_email, "it@customer.example")
