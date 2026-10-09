@@ -14,6 +14,8 @@ def make_settings(ticket_details=None):
 	settings.support_url = "https://support.test"
 	settings.get_password.return_value = "secret-token"
 	settings.ticket_details = ticket_details or []
+	# a real HDS Support Settings field: the contact used when the raiser has no email
+	settings.fallback_contact_email = ""
 	return settings
 
 
