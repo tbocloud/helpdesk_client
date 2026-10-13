@@ -60,11 +60,18 @@ class TestMcpAuth(FrappeTestCase):
 
 		with self.assertRaises(ModuleNotFoundError):
 			importlib.import_module("helpdesk_client.mcp.oauth")
-		self.assertNotIn("helpdesk_client.mcp.oauth.before_request_handler", frappe.get_hooks("before_request"))
+		self.assertNotIn(
+			"helpdesk_client.mcp.oauth.before_request_handler", frappe.get_hooks("before_request")
+		)
 
 
 class TestToolSwitches(FrappeTestCase):
 	def setUp(self):
+		# a write tool commits its change log line, refused or not: hold it, so
+		# nothing these tests change reaches the site
+		commit = patch.object(frappe.db, "commit")
+		commit.start()
+		self.addCleanup(commit.stop)
 		self.addCleanup(frappe.db.rollback)
 		self.addCleanup(frappe.set_user, "Administrator")
 		frappe.db.set_single_value("HDS Support Settings", "enabled", 1)
@@ -83,12 +90,15 @@ class TestToolSwitches(FrappeTestCase):
 		self.assertIn("Write operations are disabled", result["content"][0]["text"])
 
 	def test_run_doc_method_allows_only_submit_and_cancel(self):
+		settings = frappe.get_single("HDS Support Settings")
+		settings.site_environment = "Sandbox"
+		settings.set("write_doctypes", [{"doctype_name": "ToDo", "may_update": 1, "may_submit_cancel": 1}])
+		settings.save(ignore_permissions=True)
 		todo = frappe.get_doc({"doctype": "ToDo", "description": "mcp test"}).insert()
-		result = execute_tool(
-			"run_doc_method", {"doctype": "ToDo", "name": todo.name, "method": "rename"}
-		)
+		result = execute_tool("run_doc_method", {"doctype": "ToDo", "name": todo.name, "method": "rename"})
 		self.assertTrue(result["isError"])
-		self.assertIn("not permitted", result["content"][0]["text"])
+		# the site's guard refuses any method but submit and cancel before the tool runs
+		self.assertIn("may not rename", result["content"][0]["text"])
 		self.assertTrue(frappe.db.exists("ToDo", todo.name))
 
 	def test_child_table_write_is_checked_against_the_parent(self):
@@ -160,14 +170,20 @@ class TestHandlerChecksEveryRequest(FrappeTestCase):
 		session = init.headers["Mcp-Session-Id"]
 		listed = self.post({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, self.own_key(), session)
 		self.assertEqual(listed.status_code, 200)
-		self.assertEqual(self.post({"jsonrpc": "2.0", "id": 3, "method": "tools/list"}, None, session).status_code, 401)
+		self.assertEqual(
+			self.post({"jsonrpc": "2.0", "id": 3, "method": "tools/list"}, None, session).status_code, 401
+		)
 
 		# another hub user's key cannot ride on this user's session
 		frappe.set_user("Administrator")  # the handler left the hub's user in place
 		if not frappe.db.exists("Role", "TBO Support Hub"):
-			frappe.get_doc({"doctype": "Role", "role_name": "TBO Support Hub", "desk_access": 0}).insert(ignore_permissions=True)
+			frappe.get_doc({"doctype": "Role", "role_name": "TBO Support Hub", "desk_access": 0}).insert(
+				ignore_permissions=True
+			)
 		other = "mcp-other-hub-user@example.com"
 		other_key, other_secret = make_user_with_keys(other)
 		frappe.get_doc("User", other).add_roles("TBO Support Hub")
-		borrowed = self.post({"jsonrpc": "2.0", "id": 4, "method": "tools/list"}, f"Token {other_key}:{other_secret}", session)
+		borrowed = self.post(
+			{"jsonrpc": "2.0", "id": 4, "method": "tools/list"}, f"Token {other_key}:{other_secret}", session
+		)
 		self.assertEqual(borrowed.status_code, 400)

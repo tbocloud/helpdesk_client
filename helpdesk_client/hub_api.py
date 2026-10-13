@@ -19,7 +19,7 @@ from helpdesk_client import __version__
 from helpdesk_client.api import _require_support_user
 from helpdesk_client.support_user import get_support_user
 
-CAPABILITIES = ["hub_api_v1"]
+CAPABILITIES = ["hub_api_v1", "write_guard_v1"]
 # the labels this app's status field accepts
 CLIENT_STATUSES = ("Pending", "Open", "Replied", "Paused", "Resolved", "Closed")
 # hub labels that mean "waiting on something", shown here as Paused

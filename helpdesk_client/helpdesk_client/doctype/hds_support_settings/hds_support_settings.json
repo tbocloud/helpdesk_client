@@ -20,6 +20,11 @@
   "blocked_doctypes",
   "column_break_acl",
   "allowed_doctypes",
+  "section_write_safety",
+  "site_environment",
+  "approval_key",
+  "column_break_write",
+  "write_doctypes",
   "section_limits",
   "max_list_limit",
   "max_error_log_limit",
@@ -127,6 +132,37 @@
    "fieldtype": "Table",
    "label": "Allowed DocTypes",
    "options": "HDS Allowed DocType"
+  },
+  {
+   "description": "What TBO Support may change on this site. Every write is checked here, whatever TBO Support asks, and recorded in HDS Change Log.",
+   "fieldname": "section_write_safety",
+   "fieldtype": "Section Break",
+   "label": "Write Safety"
+  },
+  {
+   "default": "Production",
+   "description": "On Production every write from TBO Support needs an approval TBO Support signed for those exact records.",
+   "fieldname": "site_environment",
+   "fieldtype": "Select",
+   "label": "Site Environment",
+   "options": "Production\nUAT\nSandbox"
+  },
+  {
+   "description": "Made when this site is connected to TBO Support; TBO Support signs approved changes with it. Connect again to replace it.",
+   "fieldname": "approval_key",
+   "fieldtype": "Password",
+   "label": "Approval Key"
+  },
+  {
+   "fieldname": "column_break_write",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The doctypes TBO Support may change, and how. Empty: no changes at all. Users, roles, permissions, scripts, system and email settings are never changed, whatever this list says.",
+   "fieldname": "write_doctypes",
+   "fieldtype": "Table",
+   "label": "Write List",
+   "options": "HDS Allowed Write DocType"
   },
   {
    "fieldname": "section_limits",
@@ -258,7 +294,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-10-09 12:00:00.000000",
+ "modified": "2026-10-13 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Helpdesk Client",
  "name": "HDS Support Settings",

@@ -16,6 +16,7 @@ import time
 import frappe
 from werkzeug.wrappers import Response
 
+import helpdesk_client.mcp.tools.change_tools
 import helpdesk_client.mcp.tools.data_tools
 import helpdesk_client.mcp.tools.diagnostic_tools
 import helpdesk_client.mcp.tools.report_tools

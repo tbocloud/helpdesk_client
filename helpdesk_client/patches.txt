@@ -12,3 +12,4 @@ helpdesk_client.patches.v15_0_2.configurable_support_user
 helpdesk_client.patches.v15_0_3.make_recordings_private
 helpdesk_client.patches.v15_0_3.revoke_keys_if_unpaired
 helpdesk_client.patches.v15_0_4.backfill_raised_by_email
+helpdesk_client.patches.v15_0_5.default_site_environment

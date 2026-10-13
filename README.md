@@ -13,6 +13,20 @@ The hub reaches this site over MCP (`helpdesk_client.mcp.handler.handle`) with t
 
 Every argument that names a doctype, including lists, is checked against the allowed and blocked lists.
 
+### What TBO Support (the hub) may change here
+
+Every write from the hub passes this site's guard (`helpdesk_client.mcp.write_guard`), whatever the hub asks:
+
+1. support enabled, and **Allow Write Operations** on;
+2. the doctype not blocked (and in the allowed list when there is one); a table row is judged by the record it belongs to;
+3. never users, roles and permissions, system and email settings, OAuth and connected apps, scripts and scheduled jobs, custom fields, property setters, doctypes, workflows, print formats, bulk updates and data imports, or this app's own settings and log;
+4. the doctype on the **Write List** (HDS Support Settings) with that action: update, create, or submit and cancel. Nothing is deleted;
+5. on a **Production** site (the default), an approval the hub signed with this site's **Approval Key** for exactly that record and those values, and not expired.
+
+The approval key is made by this site when its System Manager connects it to TBO Support (`connect_to_hub`), handed to the hub, and forgotten when the pairing ends. A site paired before this version connects once more to get one. The write list starts empty: a site takes no write from TBO Support until its System Manager fills it.
+
+Corrections use two tools. `check_change` writes nothing and runs none of this site's code: it returns the guard's verdict, any field or value problems, and the record's current values. `apply_change` changes one record: it leaves the record alone when a field it changes no longer holds the approved old value, saves with the site's normal validation, and adds a note to the record's timeline. Every write, applied, refused or failed, is a row in **HDS Change Log** (who approved it, the change set, the old and new values), which this site's System Managers can read.
+
 ### Installation
 
 You can install this app using the [bench](https://github.com/frappe/bench) CLI:

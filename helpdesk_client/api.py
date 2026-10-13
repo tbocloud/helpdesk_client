@@ -101,7 +101,7 @@ def deregister():
 
 
 def revoke_support_keys():
-	"""Forget the hub's API keys and end its sessions. Pairing again makes fresh keys."""
+	"""Forget the hub's API keys and approval key, and end its sessions. Pairing again makes fresh keys."""
 	from frappe.utils.password import remove_encrypted_password
 
 	from helpdesk_client.mcp.session import clear_sessions
@@ -111,6 +111,7 @@ def revoke_support_keys():
 	if frappe.db.exists("User", user):
 		frappe.db.set_value("User", user, "api_key", None, update_modified=False)
 		remove_encrypted_password("User", user, "api_secret")
+	remove_encrypted_password("HDS Support Settings", "HDS Support Settings", "approval_key")
 	clear_sessions()
 	get_cache().delete_keys("one_time_login:*")
 
@@ -219,6 +220,8 @@ def connect_to_hub(code: str, hub_url: str | None = None) -> dict:
 	then registers this site the usual way (hub_url + client_id). This is the
 	only call this site makes to the hub; everything after is hub-initiated.
 	"""
+	import secrets
+
 	import requests
 
 	from helpdesk_client.setup import _create_support_user
@@ -239,6 +242,10 @@ def connect_to_hub(code: str, hub_url: str | None = None) -> dict:
 
 	settings.qcs_hub_url = hub_url
 	settings.enabled = 1
+	# made here, by this site's System Manager, never by the hub's own key: TBO
+	# Support signs approved changes with it, and this site checks each signature
+	approval_key = secrets.token_urlsafe(32)
+	settings.approval_key = approval_key
 	settings.save(ignore_permissions=True)
 	_create_support_user()
 	support_user = get_support_user()
@@ -260,6 +267,7 @@ def connect_to_hub(code: str, hub_url: str | None = None) -> dict:
 				"api_secret": api_secret,
 				"client_app": "helpdesk_client",
 				"support_user": support_user,
+				"approval_key": approval_key,
 			},
 			timeout=60,
 		)
