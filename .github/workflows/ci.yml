@@ -16,7 +16,9 @@ permissions:
 
 jobs:
   tests:
-    runs-on: ubuntu-latest
+    # Ubuntu 26's mariadb client requires SSL, which the mariadb:10.6
+    # service container doesn't offer, so bench new-site fails there.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     name: Server
 
