@@ -84,6 +84,9 @@ class TestAddressFetcherValidation(FrappeTestCase):
 		party = frappe.db.get_value("Customer", {}, "name")
 		if not party:
 			self.skipTest("no Customer master available to link")
+		# validate() reads Customer.gstin, a field india_compliance adds.
+		if not frappe.get_meta("Customer").has_field("gstin"):
+			self.skipTest("Customer has no gstin field (india_compliance not installed)")
 
 		doc = frappe.get_doc(
 			{
