@@ -121,7 +121,13 @@ jobs:
           # Frappe runs only the tested app's before_tests hook, so complete
           # ERPNext's setup wizard here; test-record bootstrap creates
           # `_Test Company`, which needs ERPNext's setup fixtures (e.g. Warehouse Type).
-          bench --site test_site execute erpnext.setup.utils.before_tests
+          # ERPNext v16 dropped before_tests; importing its test utils builds the
+          # same fixtures (this is how ERPNext's own CI bootstraps).
+          if [ "${{ matrix.frappe }}" = "15" ]; then
+            bench --site test_site execute erpnext.setup.utils.before_tests
+          else
+            bench --site test_site run-tests --lightmode --module erpnext.tests.bootstrap_test_data
+          fi
           bench --site test_site run-tests --app helpdesk_client
         env:
           TYPE: server
