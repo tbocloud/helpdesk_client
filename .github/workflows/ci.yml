@@ -104,10 +104,18 @@ jobs:
       - name: Install
         working-directory: /home/runner/frappe-bench
         run: |
+          # ERPNext v16's test data links to Payment Gateway, which lives in the
+          # payments app; ERPNext's own v16 CI installs it the same way.
+          if [ "${{ matrix.frappe }}" != "15" ]; then
+            bench get-app --skip-assets payments --branch develop
+          fi
           bench get-app --skip-assets erpnext --branch version-${{ matrix.frappe }}
           bench get-app --skip-assets helpdesk_client $GITHUB_WORKSPACE
           bench setup requirements --dev
           bench new-site --db-host 127.0.0.1 --db-root-password root --admin-password admin test_site
+          if [ "${{ matrix.frappe }}" != "15" ]; then
+            bench --site test_site install-app payments
+          fi
           bench --site test_site install-app erpnext
           bench --site test_site install-app helpdesk_client
           bench build --app helpdesk_client
