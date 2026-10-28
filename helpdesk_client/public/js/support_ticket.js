@@ -206,7 +206,8 @@ genie.SupportTicket = class SupportTicket {
 				fieldname: "attach_session_replay",
 				label: label,
 				fieldtype: "Check",
-				default: 1,
+				// the customer chooses to share it; never ticked for them
+				default: 0,
 				description: description,
 			},
 		];
@@ -358,8 +359,12 @@ genie.SupportTicket = class SupportTicket {
 		// Fall back to 50MB when the setting is 0/unset — otherwise the cap
 		// is 0 bytes and recording stops on the first chunk.
 		const maxFileSizeMB = frappe.boot.genie_max_file_size || 50;
-		this.maxFileSizeInBytes = maxFileSizeMB * 1024 * 1024;
-		this.sizeWarning = (maxFileSizeMB / 4) * 1024 * 1024;
+		// the site's own upload limit wins: a bigger recording could never be uploaded
+		this.maxFileSizeInBytes = Math.min(
+			maxFileSizeMB * 1024 * 1024,
+			frappe.boot.max_file_size || 25 * 1024 * 1024
+		);
+		this.sizeWarning = this.maxFileSizeInBytes / 4;
 		this.nextWarningSize = this.sizeWarning;
 	}
 

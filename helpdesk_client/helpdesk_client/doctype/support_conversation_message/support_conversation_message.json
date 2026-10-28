@@ -1,0 +1,92 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-10-28 14:00:00.000000",
+ "description": "One message of a chat with TBO Support: the user's, the assistant's, the team's, or a progress update.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "conversation",
+  "direction",
+  "kind",
+  "text",
+  "card",
+  "files",
+  "hub_ref"
+ ],
+ "fields": [
+  {
+   "fieldname": "conversation",
+   "fieldtype": "Link",
+   "options": "Support Conversation",
+   "label": "Conversation",
+   "reqd": 1,
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "direction",
+   "fieldtype": "Select",
+   "options": "Customer\nAssistant\nAgent\nSystem",
+   "label": "From",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "kind",
+   "fieldtype": "Data",
+   "label": "Kind",
+   "read_only": 1
+  },
+  {
+   "fieldname": "text",
+   "fieldtype": "Long Text",
+   "label": "Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "card",
+   "fieldtype": "Code",
+   "options": "JSON",
+   "label": "Card",
+   "read_only": 1
+  },
+  {
+   "fieldname": "files",
+   "fieldtype": "Code",
+   "options": "JSON",
+   "label": "Files",
+   "read_only": 1
+  },
+  {
+   "fieldname": "hub_ref",
+   "fieldtype": "Data",
+   "label": "TBO Support Reference",
+   "read_only": 1
+  }
+ ],
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-28 14:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Helpdesk Client",
+ "name": "Support Conversation Message",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "read": 1,
+   "role": "All"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

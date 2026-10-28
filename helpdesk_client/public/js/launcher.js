@@ -43,7 +43,8 @@ genie.setup_ticket_launcher = function () {
 			"genie-raise-ticket-btn",
 			__("Raise a Ticket"),
 			"76px",
-			() => new genie.SupportTicket()
+			// the chat when this site and TBO Support have it on (TBO Copilot Phase 5); the form otherwise
+			() => (frappe.boot.genie_chat_enabled ? new genie.SupportChat() : new genie.SupportTicket())
 		),
 		mk("genie-my-tickets-btn", __("My Tickets"), "116px", () =>
 			frappe.set_route("List", "Support Ticket")

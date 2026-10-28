@@ -32,6 +32,7 @@
   "max_report_rows",
   "support_portal_section",
   "enable_ticket_raising",
+  "enable_chat",
   "fallback_contact_email",
   "column_break_nuxg",
   "save_recording",
@@ -210,6 +211,14 @@
    "label": "Enable Ticket Raising"
   },
   {
+   "default": "0",
+   "depends_on": "enable_ticket_raising",
+   "description": "The Support button opens a chat with TBO Support's assistant, which asks the right questions and raises the ticket. Off: the ticket form, as before. TBO Support must have the customer chat switched on too.",
+   "fieldname": "enable_chat",
+   "fieldtype": "Check",
+   "label": "Support Chat"
+  },
+  {
    "fieldname": "fallback_contact_email",
    "fieldtype": "Data",
    "options": "Email",
@@ -294,7 +303,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-10-13 12:00:00.000000",
+ "modified": "2026-10-28 14:00:00.000000",
  "modified_by": "Administrator",
  "module": "Helpdesk Client",
  "name": "HDS Support Settings",

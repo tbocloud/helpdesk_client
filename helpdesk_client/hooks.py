@@ -145,10 +145,14 @@ doc_events = {
 
 permission_query_conditions = {
 	"Support Ticket": "helpdesk_client.helpdesk_client.doctype.support_ticket.support_ticket.get_permission_query_conditions",
+	"Support Conversation": "helpdesk_client.helpdesk_client.doctype.support_conversation.support_conversation.get_permission_query_conditions",
+	"Support Conversation Message": "helpdesk_client.helpdesk_client.doctype.support_conversation_message.support_conversation_message.get_permission_query_conditions",
 }
 
 has_permission = {
 	"Support Ticket": "helpdesk_client.helpdesk_client.doctype.support_ticket.support_ticket.has_permission",
+	"Support Conversation": "helpdesk_client.helpdesk_client.doctype.support_conversation.support_conversation.has_permission",
+	"Support Conversation Message": "helpdesk_client.helpdesk_client.doctype.support_conversation_message.support_conversation_message.has_permission",
 }
 
 # Document Events

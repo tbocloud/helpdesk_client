@@ -19,7 +19,8 @@ from helpdesk_client import __version__
 from helpdesk_client.api import _require_support_user
 from helpdesk_client.support_user import get_support_user
 
-CAPABILITIES = ["hub_api_v1", "write_guard_v1"]
+CAPABILITIES = ["hub_api_v1", "write_guard_v1", "chat_v1"]
+CHAT_DIRECTIONS = ("Assistant", "Agent", "System")
 # the labels this app's status field accepts
 CLIENT_STATUSES = ("Pending", "Open", "Replied", "Paused", "Resolved", "Closed")
 # hub labels that mean "waiting on something", shown here as Paused
@@ -97,6 +98,39 @@ def update_ticket(name: str, values: dict | str) -> dict:
 		doc.flags.from_hub = True
 		doc.save(ignore_permissions=True)
 	return {"ok": True, "applied": applied, "ignored": ignored}
+
+
+@frappe.whitelist(methods=["POST"])
+def post_message(
+	conversation: str,
+	hub_ref: str,
+	text: str = "",
+	direction: str = "Assistant",
+	kind: str = "Text",
+	card: str | dict | None = None,
+) -> dict:
+	"""A message from TBO Support to one of this site's chats (progress, the team's reply), shown live.
+
+	The same `hub_ref` is never added twice, so the hub may retry freely.
+	"""
+	from helpdesk_client import chat
+
+	_require_support_user()
+	hub_ref = _ref(hub_ref)
+	if direction not in CHAT_DIRECTIONS:
+		frappe.throw(_("Unknown direction: {0}").format(direction))
+	doc = frappe.get_doc(chat.CONVERSATION, conversation)
+	row = chat._add(doc, {"direction": direction, "kind": kind, "text": text, "card": card}, hub_ref)
+	if not row:
+		return {"ok": True, "duplicate": True}
+	doc.db_set("last_message_at", now_datetime(), update_modified=False)
+	frappe.publish_realtime(
+		"helpdesk_client_chat",
+		{"conversation": doc.name, "message": chat._as_dict(row)},
+		user=doc.user,
+		after_commit=True,
+	)
+	return {"ok": True, "duplicate": False}
 
 
 @frappe.whitelist(methods=["POST"])

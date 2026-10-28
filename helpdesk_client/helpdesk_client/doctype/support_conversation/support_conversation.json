@@ -1,0 +1,85 @@
+{
+ "actions": [],
+ "autoname": "SUPCONV-.YYYY.-.#####",
+ "creation": "2026-10-28 14:00:00.000000",
+ "description": "A chat with TBO Support's assistant from the Support button (TBO Copilot Phase 5); the ticket it raised.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "user",
+  "status",
+  "ticket",
+  "hub_conversation",
+  "language",
+  "last_message_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "options": "User",
+   "label": "User",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "options": "Talking\nSummary\nTicket raised\nWith a person\nClosed",
+   "default": "Talking",
+   "label": "Status",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "ticket",
+   "fieldtype": "Link",
+   "options": "Support Ticket",
+   "label": "Ticket",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "hub_conversation",
+   "fieldtype": "Data",
+   "label": "TBO Support Conversation",
+   "read_only": 1
+  },
+  {
+   "fieldname": "language",
+   "fieldtype": "Data",
+   "label": "Language",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_message_at",
+   "fieldtype": "Datetime",
+   "label": "Last Message",
+   "read_only": 1
+  }
+ ],
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-28 14:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Helpdesk Client",
+ "name": "Support Conversation",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "read": 1,
+   "role": "All"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}
