@@ -125,7 +125,8 @@ def get_error_log(
 	result = frappe.get_list(
 		"Error Log",
 		filters=filters,
-		fields=["name", "method", "error", "creation", "reference_doctype", "reference_name"],
+		# owner: the user it happened to (the hub's error watch counts users)
+		fields=["name", "method", "error", "creation", "reference_doctype", "reference_name", "owner"],
 		order_by="creation desc",
 		limit_page_length=limit,
 	)

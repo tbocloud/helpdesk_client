@@ -135,6 +135,8 @@ class TestErrorLogFilters(DiagnosticCase):
 		self.assertEqual([r["reference_name"] for r in rows], [f"mcp-{probe}"])
 		self.assertEqual(rows[0]["app"], "helpdesk_client")
 		self.assertEqual(rows[0]["top_frames"][-1].split(",")[0], 'helpdesk_client/helpdesk_client/probe.py"')
+		# the hub's error watch counts the users an error happened to
+		self.assertEqual(rows[0]["owner"], frappe.db.get_value("Error Log", rows[0]["name"], "owner"))
 
 
 class TestVersionHistory(DiagnosticCase):
