@@ -16,9 +16,23 @@ permissions:
 
 jobs:
   tests:
-    runs-on: ubuntu-latest
+    # Ubuntu 26's mariadb client requires SSL, which the mariadb:10.6
+    # service container doesn't offer, so bench new-site fails there.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
-    name: Server
+    # Keep the v15 job named "Server": the main branch ruleset requires that check.
+    name: ${{ matrix.frappe == 15 && 'Server' || format('Server (v{0})', matrix.frappe) }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - frappe: 15
+            python: '3.11'
+            node: 18
+          - frappe: 16
+            python: '3.14'
+            node: 24
 
     services:
       redis-cache:
@@ -44,21 +58,21 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python }}
 
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
-          node-version: 18
+          node-version: ${{ matrix.node }}
           check-latest: true
 
       - name: Cache pip
         uses: actions/cache@v6
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/*requirements.txt', '**/pyproject.toml', '**/setup.py', '**/setup.cfg') }}
+          key: ${{ runner.os }}-py${{ matrix.python }}-pip-${{ hashFiles('**/*requirements.txt', '**/pyproject.toml', '**/setup.py', '**/setup.cfg') }}
           restore-keys: |
-            ${{ runner.os }}-pip-
+            ${{ runner.os }}-py${{ matrix.python }}-pip-
             ${{ runner.os }}-
 
       - name: Get yarn cache directory path
@@ -81,7 +95,7 @@ jobs:
       - name: Setup
         run: |
           pip install frappe-bench
-          bench init --skip-redis-config-generation --skip-assets --frappe-branch version-15 --python "$(which python)" ~/frappe-bench
+          bench init --skip-redis-config-generation --skip-assets --frappe-branch version-${{ matrix.frappe }} --python "$(which python)" ~/frappe-bench
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL character_set_server = 'utf8mb4'"
           mariadb --host 127.0.0.1 --port 3306 -u root -proot -e "SET GLOBAL collation_server = 'utf8mb4_unicode_ci'"
 
@@ -90,10 +104,18 @@ jobs:
       - name: Install
         working-directory: /home/runner/frappe-bench
         run: |
-          bench get-app --skip-assets erpnext --branch version-15
+          # ERPNext v16's test data links to Payment Gateway, which lives in the
+          # payments app; ERPNext's own v16 CI installs it the same way.
+          if [ "${{ matrix.frappe }}" != "15" ]; then
+            bench get-app --skip-assets payments --branch develop
+          fi
+          bench get-app --skip-assets erpnext --branch version-${{ matrix.frappe }}
           bench get-app --skip-assets helpdesk_client $GITHUB_WORKSPACE
           bench setup requirements --dev
           bench new-site --db-host 127.0.0.1 --db-root-password root --admin-password admin test_site
+          if [ "${{ matrix.frappe }}" != "15" ]; then
+            bench --site test_site install-app payments
+          fi
           bench --site test_site install-app erpnext
           bench --site test_site install-app helpdesk_client
           bench build --app helpdesk_client
@@ -107,7 +129,13 @@ jobs:
           # Frappe runs only the tested app's before_tests hook, so complete
           # ERPNext's setup wizard here; test-record bootstrap creates
           # `_Test Company`, which needs ERPNext's setup fixtures (e.g. Warehouse Type).
-          bench --site test_site execute erpnext.setup.utils.before_tests
+          # ERPNext v16 dropped before_tests; importing its test utils builds the
+          # same fixtures (this is how ERPNext's own CI bootstraps).
+          if [ "${{ matrix.frappe }}" = "15" ]; then
+            bench --site test_site execute erpnext.setup.utils.before_tests
+          else
+            bench --site test_site run-tests --lightmode --module erpnext.tests.bootstrap_test_data
+          fi
           bench --site test_site run-tests --app helpdesk_client
         env:
           TYPE: server
