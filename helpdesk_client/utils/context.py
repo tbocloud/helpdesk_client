@@ -6,8 +6,10 @@
 import json
 
 import frappe
+from frappe import _
 from frappe.utils import add_to_date, now_datetime
 
+from helpdesk_client.mcp.auth import is_hub_user
 from helpdesk_client.utils import get_cache
 
 CODE_IDENTITY_CACHE_KEY = "helpdesk_client:code_identity"
@@ -28,6 +30,23 @@ def ticket_context(settings, page_route: str = "", ref_doctype: str = "", ref_do
 		"raised_by_email": email,
 		"raised_by_name": full_name,
 	}
+
+
+def signed_in_as_tbo_support(user: str | None = None) -> bool:
+	"""Whether TBO Support signed in here (Login to site); Administrator holds every role, the hub's too."""
+	user = user or frappe.session.user
+	return user != "Administrator" and is_hub_user(user)
+
+
+def refuse_hub_user():
+	"""TBO Support signed in here raises no ticket: it and every reply would be TBO's own."""
+	if signed_in_as_tbo_support():
+		frappe.throw(
+			_(
+				"You're signed in as TBO Support. The Support button is for the customer's own users: sign in as one of them to raise a ticket."
+			),
+			frappe.PermissionError,
+		)
 
 
 def raiser_identity(user: str, fallback_email: str | None = None) -> tuple[str, str]:

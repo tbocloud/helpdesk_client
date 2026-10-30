@@ -3,6 +3,7 @@
 
 import frappe
 
+from helpdesk_client.utils.context import signed_in_as_tbo_support
 from helpdesk_client.utils.session_replay import get_replay_bootinfo
 
 
@@ -15,6 +16,8 @@ def set_bootinfo(bootinfo):
 		and genie_settings.get("enable_chat")
 		and genie_settings.client_id
 	)
+	# TBO Support signed in here (Login to site): the button explains instead of raising a ticket as TBO
+	bootinfo["genie_hub_user"] = signed_in_as_tbo_support()
 	bootinfo["genie_max_file_size"] = genie_settings.max_recording_size
 	# Recordings and screenshots show the customer's own screens, so they are
 	# always private. The Save Recording setting is kept for older sites but

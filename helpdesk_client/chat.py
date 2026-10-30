@@ -21,7 +21,7 @@ import requests
 from frappe import _
 from frappe.utils import now_datetime
 
-from helpdesk_client.utils.context import raiser_identity, ticket_context
+from helpdesk_client.utils.context import raiser_identity, refuse_hub_user, ticket_context
 
 CONVERSATION, MESSAGE = "Support Conversation", "Support Conversation Message"
 ENDPOINT = "/api/method/helpdesk.api.copilot_conversation.message"
@@ -46,6 +46,7 @@ def chat_enabled() -> bool:
 def _require_chat():
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Please sign in to chat with support."), frappe.PermissionError)
+	refuse_hub_user()
 	if not chat_enabled():
 		raise ChatUnavailable(_("The support chat is not available; please use the form."))
 

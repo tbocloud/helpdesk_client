@@ -27,6 +27,10 @@ The approval key is made by this site when its System Manager connects it to TBO
 
 Corrections use two tools. `check_change` writes nothing and runs none of this site's code: it returns the guard's verdict, any field or value problems, and the record's current values. `apply_change` changes one record: it leaves the record alone when a field it changes no longer holds the approved old value, saves with the site's normal validation, and adds a note to the record's timeline. Every write, applied, refused or failed, is a row in **HDS Change Log** (who approved it, the change set, the old and new values), which this site's System Managers can read.
 
+### Who may raise a ticket here
+
+The Support button (the chat, or the form) is for the customer's own users. TBO Support signed in here as its support user (**Login to site** on the hub) gets a notice instead, and `chat.start`, `chat.send` and `create_ticket` refuse it, so a ticket never names TBO as the customer. Administrator still raises tickets as the site's **Fallback Contact Email**.
+
 ### Installation
 
 You can install this app using the [bench](https://github.com/frappe/bench) CLI:

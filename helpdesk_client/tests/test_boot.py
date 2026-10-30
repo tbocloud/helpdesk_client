@@ -3,9 +3,12 @@
 
 from unittest.mock import MagicMock, patch
 
+import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from helpdesk_client.boot import set_bootinfo
+from helpdesk_client.support_user import get_support_user
+from helpdesk_client.tests.test_hub_api import ensure_user
 
 
 def make_settings(
@@ -36,6 +39,17 @@ class TestSetBootinfo(FrappeTestCase):
 		self.assertEqual(bootinfo["genie_max_file_size"], 50)
 		# recordings are always private, whatever Save Recording says
 		self.assertEqual(bootinfo["genie_file_type"], 1)
+
+	@patch("helpdesk_client.boot.frappe.get_cached_doc")
+	def test_the_button_knows_tbo_support_signed_in(self, mock_settings):
+		mock_settings.return_value = make_settings()
+		self.addCleanup(frappe.set_user, "Administrator")
+		bootinfo = {}
+		set_bootinfo(bootinfo)
+		self.assertFalse(bootinfo["genie_hub_user"])  # Administrator raises as the site's contact
+		frappe.set_user(ensure_user(get_support_user()))  # Login to site
+		set_bootinfo(bootinfo)
+		self.assertTrue(bootinfo["genie_hub_user"])
 
 	@patch("helpdesk_client.boot.frappe.get_cached_doc")
 	def test_private_recording_flag(self, mock_settings):

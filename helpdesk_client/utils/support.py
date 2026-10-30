@@ -8,7 +8,7 @@ from frappe import _
 from frappe.utils import cint, flt
 from frappe.utils.safe_exec import get_safe_globals, safe_eval
 
-from helpdesk_client.utils.context import ticket_context
+from helpdesk_client.utils.context import refuse_hub_user, ticket_context
 from helpdesk_client.utils.session_replay import attach_session_files
 
 
@@ -33,6 +33,7 @@ def create_ticket(
 	settings = frappe.get_cached_doc("HDS Support Settings")
 	if not settings.enable_ticket_raising:
 		frappe.throw(_("Ticket raising is not enabled for this site."))
+	refuse_hub_user()
 
 	doc = frappe.get_doc(
 		{

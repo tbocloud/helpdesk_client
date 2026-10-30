@@ -12,8 +12,10 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from helpdesk_client import chat, hub_api
+from helpdesk_client.mcp.auth import HUB_ROLE
 from helpdesk_client.support_user import get_support_user
 from helpdesk_client.tests.test_hub_api import ensure_user
+from helpdesk_client.utils.context import signed_in_as_tbo_support
 
 USER = "chat-user@example.com"
 OTHER = "chat-other@example.com"
@@ -122,6 +124,24 @@ class TestTheRelay(ChatCase):
 		with self.assertRaises(chat.ChatUnavailable):
 			chat.start()
 		self.assertFalse(frappe.db.exists(chat.CONVERSATION, {"user": USER}))
+
+	def test_tbo_support_signed_in_here_gets_no_chat(self):
+		# Login to site signs TBO Support in as its support user: the chat would raise the ticket as TBO
+		frappe.set_user(ensure_user(get_support_user(), roles=("System Manager",)))
+		with self.assertRaises(frappe.PermissionError):
+			chat.start()
+		self.assertEqual(self.posted, [])  # nothing reached TBO Support
+		self.assertFalse(frappe.db.exists(chat.CONVERSATION, {"user": get_support_user()}))
+
+	def test_only_tbo_support_is_told_to_sign_in_as_the_customer(self):
+		if not frappe.db.exists("Role", HUB_ROLE):
+			frappe.get_doc({"doctype": "Role", "role_name": HUB_ROLE}).insert(ignore_permissions=True)
+		hub_token = ensure_user("hub-token@example.com", roles=(HUB_ROLE,))
+		self.assertTrue(signed_in_as_tbo_support(get_support_user()))
+		self.assertTrue(signed_in_as_tbo_support(hub_token))
+		self.assertFalse(signed_in_as_tbo_support(USER))
+		# Administrator holds every role, the hub's too, and raises tickets as the site's contact
+		self.assertFalse(signed_in_as_tbo_support("Administrator"))
 
 	def test_an_unreachable_hub_offers_the_form(self):
 		frappe.set_user(USER)

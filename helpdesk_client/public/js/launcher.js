@@ -44,7 +44,22 @@ genie.setup_ticket_launcher = function () {
 			__("Raise a Ticket"),
 			"76px",
 			// the chat when this site and TBO Support have it on (TBO Copilot Phase 5); the form otherwise
-			() => (frappe.boot.genie_chat_enabled ? new genie.SupportChat() : new genie.SupportTicket())
+			() => {
+				// TBO Support signed in with Login to site: a ticket would be raised as TBO, not the customer
+				if (frappe.boot.genie_hub_user) {
+					frappe.msgprint({
+						title: __("Signed in as TBO Support"),
+						message: __(
+							"You're signed in as TBO Support. The Support button is for the customer's own users: sign in as one of them to raise a ticket."
+						),
+						indicator: "orange",
+					});
+					return;
+				}
+				return frappe.boot.genie_chat_enabled
+					? new genie.SupportChat()
+					: new genie.SupportTicket();
+			}
 		),
 		mk("genie-my-tickets-btn", __("My Tickets"), "116px", () =>
 			frappe.set_route("List", "Support Ticket")

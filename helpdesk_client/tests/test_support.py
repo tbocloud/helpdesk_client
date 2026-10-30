@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from helpdesk_client.support_user import get_support_user
+from helpdesk_client.tests.test_hub_api import ensure_user
 from helpdesk_client.utils.support import create_ticket, generate_ticket_details
 
 
@@ -108,6 +110,17 @@ class TestCreateTicket(FrappeTestCase):
 
 		with self.assertRaises(frappe.ValidationError):
 			create_ticket("Nope", "<p>disabled</p>")
+
+	@patch("helpdesk_client.utils.support.frappe.get_cached_doc")
+	def test_tbo_support_signed_in_here_raises_no_ticket(self, mock_settings):
+		mock_settings.return_value = self.enabled_settings()
+		support_user = ensure_user(get_support_user(), roles=("System Manager",))
+		self.addCleanup(frappe.set_user, "Administrator")
+		frappe.set_user(support_user)
+
+		with self.assertRaises(frappe.PermissionError):
+			create_ticket("Report won't load", "<p>raised from Login to site</p>")
+		self.assertFalse(frappe.db.exists("Support Ticket", {"raised_by": support_user}))
 
 	@patch("helpdesk_client.utils.support.frappe.get_cached_doc")
 	def test_recording_file_is_attached_to_the_ticket(self, mock_settings):
