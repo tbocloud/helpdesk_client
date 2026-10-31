@@ -21,7 +21,8 @@ import requests
 from frappe import _
 from frappe.utils import now_datetime
 
-from helpdesk_client.utils.context import raiser_identity, refuse_hub_user, ticket_context
+from helpdesk_client import inbox
+from helpdesk_client.utils.context import raiser_identity, ticket_context
 
 CONVERSATION, MESSAGE = "Support Conversation", "Support Conversation Message"
 ENDPOINT = "/api/method/helpdesk.api.copilot_conversation.message"
@@ -44,9 +45,7 @@ def chat_enabled() -> bool:
 
 
 def _require_chat():
-	if frappe.session.user == "Guest":
-		frappe.throw(_("Please sign in to chat with support."), frappe.PermissionError)
-	refuse_hub_user()
+	inbox.require_user()
 	if not chat_enabled():
 		raise ChatUnavailable(_("The support chat is not available; please use the form."))
 
@@ -153,12 +152,18 @@ def _as_dict(row) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def start(page_route: str = "", ref_doctype: str = "", ref_docname: str = "", new: int = 0) -> dict:
-	"""The user's open chat (its messages), or a new one with the assistant's greeting."""
+	"""The user's open chat (its messages), or a new one with the assistant's greeting.
+
+	A ticket's chat is never resumed here: it opens from the ticket (`open_ticket`)."""
 	_require_chat()
 	if not int(new or 0):
 		open_name = frappe.db.get_value(
 			CONVERSATION,
-			{"user": frappe.session.user, "status": ["!=", "Closed"]},
+			{
+				"user": frappe.session.user,
+				"status": ["in", inbox.OPEN_CHAT_STATES],
+				"ticket": ["is", "not set"],
+			},
 			"name",
 			order_by="creation desc",
 		)
@@ -206,7 +211,91 @@ def history(conversation: str) -> dict:
 		"conversation": doc.name,
 		"status": doc.status,
 		"ticket": doc.ticket,
+		"ticket_state": inbox.ticket_card(frappe.get_doc(inbox.TICKET, doc.ticket)) if doc.ticket else None,
 		"messages": [_as_dict(frappe._dict(r)) for r in rows],
+	}
+
+
+@frappe.whitelist(methods=["POST"])
+def open_ticket(ticket: str) -> dict:
+	"""A ticket's chat. One raised with the form gets its chat the first time it is opened (Phase 13):
+	its text and the team's updates first, then TBO Support links the chat to the ticket."""
+	inbox.require_user()
+	t = inbox.my_ticket(ticket)
+	name = frappe.db.get_value(CONVERSATION, {"ticket": t.name}, "name")
+	if name:
+		return history(name)
+	if not (chat_enabled() and t.ticket_id):
+		# TBO Support has not picked it up yet, or this site has no chat: its story, read-only
+		return _read_only(t)
+	doc = frappe.get_doc(
+		{"doctype": CONVERSATION, "user": frappe.session.user, "status": "With a person", "ticket": t.name}
+	).insert(ignore_permissions=True)
+	try:
+		reply = _relay(
+			{
+				"action": "open_ticket",
+				"client_conversation": doc.name,
+				"client_ticket": t.name,
+				"user": _user(),
+			}
+		)
+	except ChatUnavailable:
+		# an older TBO Support, or none reachable: try again next time
+		frappe.delete_doc(CONVERSATION, doc.name, ignore_permissions=True, force=True)
+		return _read_only(t)
+	for message in _ticket_story(t):
+		_add(doc, message)
+	_keep(doc, reply)
+	return history(doc.name)
+
+
+def _ticket_story(t) -> list[dict]:
+	"""A form ticket's text and TBO Support's updates on it, as the first messages of its chat."""
+	from frappe.core.utils import html2text
+
+	story = []
+	text = html2text(t.description or "", wrap=False).strip()
+	if text or t.subject:
+		story.append({"direction": "Customer", "kind": "Text", "text": text or t.subject})
+	for u in sorted(t.updates or [], key=lambda u: str(u.posted_at or "")):
+		if u.kind == "Reply":
+			author = u.author_name or _("TBO Support")
+			story.append(
+				{
+					"direction": "Agent",
+					"kind": "Text",
+					"text": u.message,
+					"card": {"title": author, "lines": [u.message]},
+				}
+			)
+		elif u.kind == "Stage":
+			story.append(
+				{
+					"direction": "System",
+					"kind": "Stage",
+					"text": u.message or _(u.stage),
+					"card": {"title": _(u.stage), "lines": [u.message] if u.message else []},
+				}
+			)
+		elif u.message:
+			story.append({"direction": "System", "kind": "Text", "text": u.message})
+	return story
+
+
+def _read_only(t) -> dict:
+	return {
+		"conversation": None,
+		"status": None,
+		"ticket": t.name,
+		"ticket_state": inbox.ticket_card(t),
+		"read_only": True,
+		"note": _("The chat for this ticket opens once TBO Support has picked it up.")
+		if not t.ticket_id
+		else _("The chat is not available right now."),
+		"messages": [
+			{"name": None, "files": [], "creation": None, "card": None, **m} for m in _ticket_story(t)
+		],
 	}
 
 
@@ -217,6 +306,12 @@ def send(
 	"""The user's message or button press: it goes to TBO Support, and its answer comes back."""
 	_require_chat()
 	doc = _mine(conversation)
+	if doc.ticket and action in ("fixed", "still_broken"):
+		return _answer_the_fix(doc, action == "fixed", note)
+	if doc.ticket and inbox.ticket_card(frappe.get_doc(inbox.TICKET, doc.ticket))["closed"] and not action:
+		frappe.throw(
+			_("This ticket is closed. Press It came back if the problem is back, or start a new chat.")
+		)
 	text = (text or "").strip()[:MAX_TEXT]
 	files = _own_files(files)
 	if text or files:
@@ -245,6 +340,25 @@ def send(
 	doc.reload()
 	if reply.get("ticket") and not doc.ticket:
 		_ticket_for(doc, reply)
+	return {"conversation": doc.name, "status": doc.status, "ticket": doc.ticket, "messages": kept}
+
+
+def _answer_the_fix(doc, fixed: bool, note: str) -> dict:
+	"""It's fixed / Still broken / It came back in a ticket's chat: recorded on the ticket here, as on its
+	form, so the dot changes at once and TBO Support applies it once on its next sync."""
+	from helpdesk_client.helpdesk_client.doctype.support_ticket import support_ticket
+
+	note = (note or "").strip()[:1000]
+	kept = []
+	if fixed:
+		support_ticket.confirm_resolution(doc.ticket, note)
+		text = _("Thank you for confirming. TBO Support closes the ticket.")
+	else:
+		support_ticket.reopen(doc.ticket, note)
+		kept.append(_as_dict(_add(doc, {"direction": "Customer", "kind": "Text", "text": note})))
+		text = _("Thank you. The ticket is open again, and a person from our team is on it.")
+	kept.append(_as_dict(_add(doc, {"direction": "System", "kind": "Text", "text": text})))
+	doc.db_set("last_message_at", now_datetime(), update_modified=False)
 	return {"conversation": doc.name, "status": doc.status, "ticket": doc.ticket, "messages": kept}
 
 

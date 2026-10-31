@@ -31,6 +31,31 @@ Corrections use two tools. `check_change` writes nothing and runs none of this s
 
 The Support button (the chat, or the form) is for the customer's own users. TBO Support signed in here as its support user (**Login to site** on the hub) gets a notice instead, and `chat.start`, `chat.send` and `create_ticket` refuse it, so a ticket never names TBO as the customer. Administrator still raises tickets as the site's **Fallback Contact Email**.
 
+### The Support panel: one chat per ticket
+
+With the chat on, the round Support button opens the **Support panel** (`public/js/chat_panel.js`). It has three tabs:
+
+- **Tickets:** a dropdown of the user's tickets. Each shows a dot, the ticket's name and a one-line summary, and opens that ticket's own chat.
+- **New chat:** chats that did not become tickets.
+- **Action needed:** the red tickets, each with what is needed. Picking one opens its chat.
+
+**Full page** opens the same at `/app/support-chat`, and `/app/support-chat/SUP-…` opens one ticket's chat. The panel and the page share the chat view in `public/js/chat_view.js`; the server side is `inbox.py`.
+
+- **The dots** (`inbox.state`):
+  - 🟢 the user confirmed the fix, or the ticket is closed;
+  - 🔴 TBO Support waits for the user: a fix to check (Resolved), or an answer (Replied, Waiting on Customer, or the stage Waiting for you);
+  - 🟠 the team is working on it.
+
+  A confirm or reopen counts only until TBO Support changes the ticket's status again (`last_synced`), so a ticket fixed a second time asks again.
+- **A red button** above the Support button shows **Actions needed · n** while tickets wait for the user. Its count comes from boot and is refreshed live.
+- **A new chat** first asks "Is this a new problem, or about one of your open tickets?" and lists them.
+- **A ticket raised with the form** gets its chat the first time it is opened (`chat.open_ticket`). Its text and TBO Support's updates come first, then TBO Support links a chat to the ticket (hub action `open_ticket`). Before TBO Support has picked the ticket up, or with an older hub, its story shows read-only.
+- **What's the status?** is answered on this site from the ticket (stage, latest update, who has it, what is needed); nobody at TBO Support is asked.
+- **Only the user closes a ticket.** In a ticket's chat, **It's fixed**, **Still broken** and **It came back** (on a closed ticket) set the ticket's own confirmation, as its form does. TBO Support applies it once on its next sync (every 5 minutes). A closed ticket's chat takes no more messages.
+- **Notices and reminders:**
+  - When a ticket turns red, the user gets one notice saying what is needed, linked to its chat.
+  - A fix waiting for the user's check is brought up again every 3 days until they answer (`inbox.remind_unconfirmed`, daily).
+
 ### Installation
 
 You can install this app using the [bench](https://github.com/frappe/bench) CLI:

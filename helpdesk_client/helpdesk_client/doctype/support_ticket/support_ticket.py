@@ -6,8 +6,13 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 
+from helpdesk_client import inbox
 from helpdesk_client.support_user import get_support_user
-from helpdesk_client.utils.notifications import notify_stage_change, notify_status_change
+from helpdesk_client.utils.notifications import (
+	notify_action_needed,
+	notify_stage_change,
+	notify_status_change,
+)
 
 RESOLVED_STATUSES = ("Resolved", "Closed")
 
@@ -19,8 +24,17 @@ class SupportTicket(Document):
 		The Hub writes status and stage here, so this is the only place a
 		change can be observed — the client never polls the Helpdesk.
 		"""
+		inbox.refresh_for(self)
 		previous = self.get_doc_before_save()
 		if not previous:
+			return
+		if previous.status != self.status:
+			# when TBO Support last moved it: a confirm or reopen before this is an old answer
+			self.db_set("last_synced", now_datetime(), update_modified=False)
+		now = inbox.state(self)
+		if now["dot"] == inbox.RED and inbox.state(previous)["dot"] != inbox.RED:
+			# one notice saying what is needed, instead of the status or stage one
+			notify_action_needed(self, now["action"])
 			return
 		self.notify_status_change(previous)
 		self.notify_stage_change(previous)
@@ -28,7 +42,6 @@ class SupportTicket(Document):
 	def notify_status_change(self, previous):
 		if previous.status == self.status:
 			return
-		self.db_set("last_synced", now_datetime(), update_modified=False)
 		notify_status_change(self, self.status)
 
 	def notify_stage_change(self, previous):

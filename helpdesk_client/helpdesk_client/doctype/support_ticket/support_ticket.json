@@ -36,6 +36,7 @@
   "column_break_confirmation",
   "reopen_requested",
   "reopen_count",
+  "confirmation_reminded_at",
   "context_section",
   "page_route",
   "ref_doctype",
@@ -251,6 +252,15 @@
    "read_only": 1
   },
   {
+   "description": "When the user was last reminded to check the fix (every 3 days until they answer)",
+   "fieldname": "confirmation_reminded_at",
+   "fieldtype": "Datetime",
+   "hidden": 1,
+   "label": "Confirmation Reminded At",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
    "collapsible": 1,
    "fieldname": "context_section",
    "fieldtype": "Section Break",
@@ -312,7 +322,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-09 12:00:00.000000",
+ "modified": "2026-10-31 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Helpdesk Client",
  "name": "Support Ticket",

@@ -44,3 +44,24 @@ def notify_stage_change(doc):
 			"document_name": doc.name,
 		}
 	).insert(ignore_permissions=True)
+
+
+def notify_action_needed(doc, action: str):
+	"""The ticket waits for the reporter (Phase 13): the notice says what to do and opens its chat."""
+	if not doc.raised_by:
+		return
+
+	from helpdesk_client.inbox import chat_route
+
+	frappe.get_doc(
+		{
+			"doctype": "Notification Log",
+			"for_user": doc.raised_by,
+			"type": "Alert",
+			"subject": _("{0} needs you: {1}").format(doc.name, action),
+			"email_content": doc.stage_message or "",
+			"document_type": "Support Ticket",
+			"document_name": doc.name,
+			"link": chat_route(doc.name),
+		}
+	).insert(ignore_permissions=True)

@@ -176,6 +176,8 @@ has_permission = {
 scheduler_events = {
 	"daily": [
 		"helpdesk_client.utils.session_replay.delete_expired_session_replays",
+		# a fix waiting for the user's check is brought up every 3 days (Phase 13)
+		"helpdesk_client.inbox.remind_unconfirmed",
 	],
 }
 
