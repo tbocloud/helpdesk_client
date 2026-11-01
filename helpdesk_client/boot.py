@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe.utils import cint
 
 from helpdesk_client import inbox
 from helpdesk_client.utils.context import signed_in_as_tbo_support
@@ -26,6 +27,8 @@ def set_bootinfo(bootinfo):
 		else 0
 	)
 	bootinfo["genie_max_file_size"] = genie_settings.max_recording_size
+	# a screen recording from the chat stops by itself after this long (Phase 14; 3 minutes unless set)
+	bootinfo["genie_recording_seconds"] = 60 * (cint(genie_settings.get("max_recording_minutes")) or 3)
 	# Recordings and screenshots show the customer's own screens, so they are
 	# always private. The Save Recording setting is kept for older sites but
 	# can no longer make them public.

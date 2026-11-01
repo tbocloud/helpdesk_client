@@ -48,22 +48,45 @@ genie.setup_ticket_launcher = function () {
 
 	if (frappe.boot.genie_chat_enabled) {
 		genie.setup_actions_button();
-		fab.addEventListener("click", () => {
-			if (genie.refuse_hub_user()) return;
-			const panel = genie.support_chat;
-			if (
-				panel &&
-				panel.panel.style.display !== "none" &&
-				document.body.contains(panel.panel)
-			) {
-				panel.hide();
-				return;
-			}
-			new genie.SupportChat();
-		});
+		fab.addEventListener("click", () => genie.toggle_support_panel());
+		genie.setup_support_shortcut();
 		return;
 	}
 	genie.setup_ticket_menu(fab);
+};
+
+// The round button and Ctrl + / (Cmd + / on a Mac) open and close the panel (Phase 14).
+genie.toggle_support_panel = function () {
+	if (genie.refuse_hub_user()) return;
+	if ((frappe.get_route() || [])[0] === "support-chat") return; // the full page is open
+	const panel = genie.support_chat;
+	if (panel && document.body.contains(panel.panel) && panel.visible()) {
+		panel.hide();
+		setTimeout(() => {
+			const fab = document.getElementById("genie-support-fab");
+			if (fab) fab.focus();
+		}, 0);
+		return;
+	}
+	new genie.SupportChat();
+};
+
+genie.setup_support_shortcut = function () {
+	if (frappe.boot.genie_hub_user || !frappe.ui.keys || !frappe.ui.keys.add_shortcut) return;
+	frappe.ui.keys.add_shortcut({
+		shortcut: "ctrl+/",
+		action: (e) => {
+			if (e) e.preventDefault();
+			genie.toggle_support_panel();
+		},
+		description: __("Open or close Support"),
+		// also while typing in the chat; not in a code editor, where Ctrl + / comments a line
+		ignore_inputs: true,
+		condition: () => {
+			const el = document.activeElement;
+			return !(el && el.closest && el.closest(".ace_editor, .CodeMirror, .cm-editor"));
+		},
+	});
 };
 
 // The red button: how many tickets wait for the user; it opens the panel on Action needed.

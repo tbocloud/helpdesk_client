@@ -177,13 +177,16 @@ class TestAFormTicketsChat(ChatCase):
 		self.assertEqual(chat.open_ticket(t.name)["conversation"], opened["conversation"])
 		self.assertEqual(len(self.posted), 1)  # the second time it is already linked
 
-	def test_before_tbo_support_picks_it_up_it_is_read_only(self):
+	def test_before_tbo_support_picks_it_up_it_is_read_only_if_tbo_support_cannot_yet(self):
+		# Phase 14: the site asks first (TBO Support picks the new ticket up at once); an older
+		# TBO Support refuses, and the chat stays read-only until its next pull
 		frappe.set_user(USER)
 		t = ticket()  # Pending, no hub number yet
+		self.replies.append(MagicMock(status_code=417))
 		opened = chat.open_ticket(t.name)
 		self.assertTrue(opened["read_only"])
 		self.assertIsNone(opened["conversation"])
-		self.assertEqual(self.posted, [])
+		self.assertEqual(json.loads(self.posted[-1][1])["action"], "open_ticket")
 
 	def test_an_older_tbo_support_leaves_it_read_only(self):
 		t = self.form_ticket()

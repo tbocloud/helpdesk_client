@@ -20,16 +20,47 @@ genie.capture_context = function () {
 };
 
 genie.SupportTicket = class SupportTicket {
-	constructor() {
+	// opts (Phase 14, from the chat's Send a form instead): prefill {description, files, record}, and
+	// on_raised(name) to open the new ticket's chat instead of a message with a link
+	constructor(opts = {}) {
 		if (!frappe.boot.genie_support_enabled) {
 			frappe.msgprint(__("Ticket raising is not enabled for this site."));
 			return;
 		}
+		this.opts = opts;
 		this.init_config();
 		this.context = genie.capture_context();
+		const record = opts.prefill && opts.prefill.record;
+		if (record && record.doctype) {
+			this.context.ref_doctype = record.doctype;
+			this.context.ref_docname = record.name || "";
+		}
 		this.setup_dialog();
 		this.dialog.show();
+		this.prefill(opts.prefill);
 		this.maybe_start_tour();
+	}
+
+	// What the user had typed and attached in the chat goes into the form.
+	prefill(data) {
+		if (!data) return;
+		if (data.description) {
+			this.dialog.set_value(
+				"ticket_description",
+				frappe.utils.escape_html(data.description).replace(/\n/g, "<br>")
+			);
+		}
+		(data.files || []).forEach((f) => {
+			if (f.kind === "image") {
+				this.screenshots.push({ blob: f.blob, name: f.name });
+			} else if (f.kind === "video" && !genie.blob) {
+				genie.blob = f.blob;
+				genie.blobURL = URL.createObjectURL(f.blob);
+				this.dialog.set_df_property("view_recording", "hidden", 0);
+				this.dialog.set_df_property("clear_recording", "hidden", 0);
+			}
+		});
+		if (this.screenshots.length) this.renderScreenshots();
 	}
 
 	setup_dialog() {
@@ -154,6 +185,8 @@ genie.SupportTicket = class SupportTicket {
 			},
 		});
 
+		// closing the form any way (×, Esc) ends its tour, or the tour's popup stays over the page
+		this.dialog.onhide = () => this.end_tour();
 		this.dialog.$wrapper.find(".modal-dialog").css("z-index", 1);
 		// Session replay must not capture the ticket being written.
 		this.dialog.$wrapper.addClass("genie-no-record");
@@ -288,6 +321,11 @@ genie.SupportTicket = class SupportTicket {
 					});
 					this.end_tour();
 					this.dialog.hide();
+					if (this.opts && this.opts.on_raised) {
+						// from the chat: its chat opens at once (Phase 14)
+						this.opts.on_raised(r.message);
+						return;
+					}
 					// No Helpdesk ID yet — support picks the ticket up on its
 					// next cycle and the ID lands on the local record.
 					frappe.msgprint(
@@ -538,28 +576,11 @@ genie.SupportTicket = class SupportTicket {
 	}
 
 	async captureScreenshot() {
-		// One still frame via the same permission flow as recording.
-		try {
-			const stream = await navigator.mediaDevices.getDisplayMedia(
-				genie.display_media_options()
-			);
-			const video = document.createElement("video");
-			video.srcObject = stream;
-			await video.play();
-			const canvas = document.createElement("canvas");
-			canvas.width = video.videoWidth;
-			canvas.height = video.videoHeight;
-			canvas.getContext("2d").drawImage(video, 0, 0);
-			stream.getTracks().forEach((t) => t.stop());
-			canvas.toBlob((blob) => {
-				if (!blob) return;
-				this.screenshots.push({ blob: blob, name: `screenshot-${Date.now()}.png` });
-				this.renderScreenshots();
-			}, "image/png");
-		} catch (err) {
-			// user cancelled the picker — not an error
-			console.warn(err);
-		}
+		// One still frame via the same permission flow as recording (shared with the chat, Phase 14).
+		const blob = await genie.capture_screenshot().catch(() => null);
+		if (!blob) return; // the user cancelled the picker
+		this.screenshots.push({ blob: blob, name: `screenshot-${Date.now()}.png` });
+		this.renderScreenshots();
 	}
 
 	pickImages() {

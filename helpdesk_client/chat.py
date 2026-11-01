@@ -29,6 +29,9 @@ ENDPOINT = "/api/method/helpdesk.api.copilot_conversation.message"
 SIGNING_CONTEXT = b"conversation-v1"
 RELAY_TIMEOUT = 60
 MAX_TEXT = 4000
+# Get help with this error (Phase 14): the message as the user saw it, and what they pressed
+MAX_ERROR = 500
+FORM_ACTIONS = ("Save", "Submit", "Cancel", "Update", "Amend")
 
 
 class ChatUnavailable(frappe.ValidationError):
@@ -95,6 +98,18 @@ def _user() -> dict:
 	return {"email": email, "name": name, "language": language}
 
 
+def _readable(conversation: str):
+	"""The user's own chat, or the chat of a ticket they follow (read only)."""
+	from helpdesk_client.helpdesk_client.doctype.support_ticket.support_ticket import is_follower
+
+	doc = frappe.get_doc(CONVERSATION, conversation)
+	if doc.user == frappe.session.user:
+		return doc
+	if doc.ticket and is_follower(frappe.get_doc(inbox.TICKET, doc.ticket)):
+		return doc
+	frappe.throw(_("This is not your conversation."), frappe.PermissionError)
+
+
 def _mine(conversation: str):
 	doc = frappe.get_doc(CONVERSATION, conversation)
 	if doc.user != frappe.session.user:
@@ -150,13 +165,34 @@ def _as_dict(row) -> dict:
 	}
 
 
+def error_line(ref_doctype: str, ref_docname: str, shown_error: str, error_action: str) -> str:
+	"""The user's first message when they pressed Get help with this error (Phase 14)."""
+	record = " ".join(filter(None, (ref_doctype, ref_docname)))
+	if error_action and record:
+		return _("{0} failed on {1}: {2}").format(_(error_action), record, shown_error)
+	if record:
+		return _("Error on {0}: {1}").format(record, shown_error)
+	return _("Error: {0}").format(shown_error)
+
+
 @frappe.whitelist(methods=["POST"])
-def start(page_route: str = "", ref_doctype: str = "", ref_docname: str = "", new: int = 0) -> dict:
+def start(
+	page_route: str = "",
+	ref_doctype: str = "",
+	ref_docname: str = "",
+	new: int = 0,
+	shown_error: str = "",
+	error_action: str = "",
+) -> dict:
 	"""The user's open chat (its messages), or a new one with the assistant's greeting.
 
-	A ticket's chat is never resumed here: it opens from the ticket (`open_ticket`)."""
+	A ticket's chat is never resumed here: it opens from the ticket (`open_ticket`). From a form's
+	Get help (Phase 14) the chat starts on the record; with an error, that error is the first message,
+	and TBO Support takes the record and the error as facts."""
 	_require_chat()
-	if not int(new or 0):
+	shown_error = " ".join(str(shown_error or "").split())[:MAX_ERROR]
+	error_action = str(error_action or "").strip() if str(error_action or "").strip() in FORM_ACTIONS else ""
+	if not int(new or 0) and not shown_error:
 		open_name = frappe.db.get_value(
 			CONVERSATION,
 			{
@@ -169,26 +205,41 @@ def start(page_route: str = "", ref_doctype: str = "", ref_docname: str = "", ne
 		)
 		if open_name:
 			return history(open_name)
-	doc = frappe.get_doc({"doctype": CONVERSATION, "user": frappe.session.user, "status": "Talking"}).insert(
-		ignore_permissions=True
-	)
 	context = ticket_context(_settings(), page_route, ref_doctype, ref_docname)
+	doc = frappe.get_doc(
+		{
+			"doctype": CONVERSATION,
+			"user": frappe.session.user,
+			"status": "Talking",
+			"ref_doctype": context.get("ref_doctype") or None,
+			"ref_docname": context.get("ref_docname") or None,
+		}
+	).insert(ignore_permissions=True)
+	first = ""
+	if shown_error:
+		first = error_line(context.get("ref_doctype"), context.get("ref_docname"), shown_error, error_action)
+		frappe.get_doc(
+			{
+				"doctype": MESSAGE,
+				"conversation": doc.name,
+				"direction": "Customer",
+				"kind": "Text",
+				"text": first,
+			}
+		).insert(ignore_permissions=True)
+	sent = {
+		key: context[key]
+		for key in ("page_route", "ref_doctype", "ref_docname", "user_roles", "error_logs", "code_identity")
+	}
+	if shown_error:
+		sent.update(shown_error=shown_error, error_action=error_action)
 	reply = _relay(
 		{
 			"action": "start",
 			"client_conversation": doc.name,
 			"user": _user(),
-			"context": {
-				key: context[key]
-				for key in (
-					"page_route",
-					"ref_doctype",
-					"ref_docname",
-					"user_roles",
-					"error_logs",
-					"code_identity",
-				)
-			},
+			"text": first,
+			"context": sent,
 		}
 	)
 	if not reply.get("enabled"):
@@ -200,7 +251,7 @@ def start(page_route: str = "", ref_doctype: str = "", ref_docname: str = "", ne
 
 @frappe.whitelist(methods=["GET", "POST"])
 def history(conversation: str) -> dict:
-	doc = _mine(conversation)
+	doc = _readable(conversation)
 	rows = frappe.get_all(
 		MESSAGE,
 		filters={"conversation": doc.name},
@@ -213,6 +264,11 @@ def history(conversation: str) -> dict:
 		"ticket": doc.ticket,
 		"ticket_state": inbox.ticket_card(frappe.get_doc(inbox.TICKET, doc.ticket)) if doc.ticket else None,
 		"messages": [_as_dict(frappe._dict(r)) for r in rows],
+		# a colleague who follows the ticket reads its chat; the one who raised it writes in it
+		"read_only": doc.user != frappe.session.user,
+		"note": _("You follow this ticket. The colleague who raised it answers TBO Support here.")
+		if doc.user != frappe.session.user
+		else None,
 	}
 
 
@@ -220,13 +276,18 @@ def history(conversation: str) -> dict:
 def open_ticket(ticket: str) -> dict:
 	"""A ticket's chat. One raised with the form gets its chat the first time it is opened (Phase 13):
 	its text and the team's updates first, then TBO Support links the chat to the ticket."""
+	from helpdesk_client.helpdesk_client.doctype.support_ticket.support_ticket import is_raiser
+
 	inbox.require_user()
-	t = inbox.my_ticket(ticket)
+	t = inbox.my_ticket(ticket, follower=True)
 	name = frappe.db.get_value(CONVERSATION, {"ticket": t.name}, "name")
 	if name:
 		return history(name)
-	if not (chat_enabled() and t.ticket_id):
-		# TBO Support has not picked it up yet, or this site has no chat: its story, read-only
+	if not is_raiser(t):
+		# a follower reads; only the one who raised it opens the chat with TBO Support
+		return _read_only(t)
+	if not (chat_enabled() and (t.ticket_id or t.status == "Pending")):
+		# this site has no chat: its story, read-only
 		return _read_only(t)
 	doc = frappe.get_doc(
 		{"doctype": CONVERSATION, "user": frappe.session.user, "status": "With a person", "ticket": t.name}
@@ -241,9 +302,13 @@ def open_ticket(ticket: str) -> dict:
 			}
 		)
 	except ChatUnavailable:
-		# an older TBO Support, or none reachable: try again next time
+		# an older TBO Support, one that has not picked a new ticket up yet, or none reachable:
+		# try again next time
 		frappe.delete_doc(CONVERSATION, doc.name, ignore_permissions=True, force=True)
 		return _read_only(t)
+	if reply.get("ticket") and not t.ticket_id:
+		# TBO Support picked the form ticket up just now (Phase 14): its number, as its pull writes it
+		t.db_set("ticket_id", str(reply["ticket"])[:140], update_modified=False)
 	for message in _ticket_story(t):
 		_add(doc, message)
 	_keep(doc, reply)
@@ -403,6 +468,9 @@ def _ticket_for(doc, reply: dict):
 			"status": "Open",
 			"ticket_id": reply["ticket"],
 			"raised_by": frappe.session.user,
+			# the record the chat started on (Get help on a form, Phase 14)
+			"ref_doctype": doc.get("ref_doctype"),
+			"ref_docname": doc.get("ref_docname"),
 			**{
 				k: context[k]
 				for k in ("user_roles", "error_logs", "code_identity", "raised_by_email", "raised_by_name")

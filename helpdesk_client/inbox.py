@@ -16,6 +16,7 @@ from frappe.utils import add_days, formatdate, get_datetime, now_datetime
 from helpdesk_client.utils.context import refuse_hub_user
 
 TICKET, CONVERSATION, MESSAGE = "Support Ticket", "Support Conversation", "Support Conversation Message"
+FOLLOWER = "Support Ticket Follower"
 GREEN, RED, ORANGE = "green", "red", "orange"
 # hub labels that mean the team is waiting for the customer (Waiting on Task is the team's own wait)
 WAITING_LABELS = ("Replied", "Waiting on Customer")
@@ -36,6 +37,10 @@ TICKET_FIELDS = [
 	"close_requested",
 	"last_synced",
 	"modified",
+	"owner",
+	"raised_by",
+	"ref_doctype",
+	"ref_docname",
 ]
 
 
@@ -110,36 +115,60 @@ def _last_team_word(ticket: str) -> str:
 	return rows[0].message if rows else ""
 
 
-def _my_tickets(fields=None, limit: int = 200) -> list:
+def followed(user: str | None = None) -> list[str]:
+	"""The tickets a colleague raised that this user follows (Phase 14)."""
+	return frappe.get_all(
+		FOLLOWER, filters={"user": user or frappe.session.user, "parenttype": TICKET}, pluck="parent"
+	)
+
+
+def _my_tickets(fields=None, limit: int = 200, filters=None) -> list:
+	"""The user's tickets: the ones they raised, were raised for, or follow."""
 	user = frappe.session.user
+	or_filters = [["owner", "=", user], ["raised_by", "=", user]]
+	following = followed(user)
+	if following:
+		or_filters.append(["name", "in", following])
 	return frappe.get_all(
 		TICKET,
-		or_filters={"owner": user, "raised_by": user},
+		filters=filters,
+		or_filters=or_filters,
 		fields=fields or TICKET_FIELDS,
 		order_by="modified desc",
 		limit=limit,
 	)
 
 
-def my_ticket(name: str):
-	"""One of the user's own tickets (the one who raised it, or the one it was raised for)."""
-	from helpdesk_client.helpdesk_client.doctype.support_ticket.support_ticket import is_raiser
+def my_ticket(name: str, follower: bool = False):
+	"""One of the user's own tickets (the one who raised it, or the one it was raised for); with
+	`follower`, also one they follow."""
+	from helpdesk_client.helpdesk_client.doctype.support_ticket.support_ticket import is_follower, is_raiser
 
 	doc = frappe.get_doc(TICKET, name)
-	if not is_raiser(doc):
+	if not (is_raiser(doc) or (follower and is_follower(doc))):
 		frappe.throw(_("This is not your ticket."), frappe.PermissionError)
 	return doc
 
 
 def ticket_card(ticket) -> dict:
-	"""What the chat shows about its ticket: its name, summary and dot."""
+	"""What the chat shows about its ticket: its name, summary and dot, the record it is about, and
+	whether the user only follows it (then nothing waits for them: the raiser answers)."""
 	t = _plain(ticket)
-	return {
-		"name": t.name,
-		"ticket_id": t.ticket_id,
-		"summary": summary(t.subject),
-		**state(t),
-	}
+	user = frappe.session.user
+	following = bool(t.get("owner") or t.get("raised_by")) and user not in (
+		t.get("owner"),
+		t.get("raised_by"),
+	)
+	card = {"name": t.name, "ticket_id": t.ticket_id, "summary": summary(t.subject), **state(t)}
+	if following:
+		card.update(confirm=False, action="")
+	card["following"] = following
+	card["record"] = (
+		{"doctype": t.ref_doctype, "name": t.ref_docname}
+		if t.get("ref_doctype") and t.get("ref_docname")
+		else None
+	)
+	return card
 
 
 @frappe.whitelist()
@@ -164,7 +193,7 @@ def overview() -> dict:
 	rows.sort(key=lambda r: r["closed"])  # open ones first, each group newest first
 	return {
 		"tickets": rows,
-		"actions": [r for r in rows if r["dot"] == RED],
+		"actions": [r for r in rows if r["dot"] == RED and not r["following"]],
 		"chats": _chats([c for c in chats if not c.ticket]),
 	}
 
@@ -199,6 +228,16 @@ def _chats(chats: list) -> list[dict]:
 		)
 	rows.sort(key=lambda r: r["last_activity"], reverse=True)
 	return rows
+
+
+@frappe.whitelist()
+def for_record(doctype: str, docname: str) -> list[dict]:
+	"""The user's open tickets about one record: the Support strip on its form (Phase 14)."""
+	require_user()
+	if not (doctype and docname):
+		return []
+	rows = _my_tickets(filters={"ref_doctype": doctype, "ref_docname": docname}, limit=20)
+	return [card for card in map(ticket_card, rows) if not card["closed"]]
 
 
 def actions_count(user: str | None = None) -> int:
@@ -253,7 +292,8 @@ def ticket_status(ticket: str) -> dict:
 
 def refresh_for(ticket) -> None:
 	"""The panel, the full page and the red button reload when a ticket changes."""
-	for user in {ticket.owner, ticket.raised_by} - {None, "", "Guest", "Administrator"}:
+	users = {ticket.owner, ticket.raised_by} | {f.user for f in ticket.get("followers") or []}
+	for user in users - {None, "", "Guest", "Administrator"}:
 		frappe.publish_realtime(
 			"helpdesk_client_inbox", {"ticket": ticket.name}, user=user, after_commit=True
 		)
@@ -270,7 +310,7 @@ def remind_unconfirmed() -> int:
 	for t in frappe.get_all(
 		TICKET,
 		filters={"status": ["!=", "Closed"]},
-		fields=[*TICKET_FIELDS, "raised_by", "owner", "confirmation_reminded_at"],
+		fields=[*TICKET_FIELDS, "confirmation_reminded_at"],
 	):
 		if not state(t)["confirm"]:
 			continue

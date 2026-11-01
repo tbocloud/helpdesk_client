@@ -46,7 +46,9 @@
   "column_break_context",
   "user_roles",
   "error_logs",
-  "code_identity"
+  "code_identity",
+  "followers_section",
+  "followers"
  ],
  "fields": [
   {
@@ -318,11 +320,24 @@
    "fieldtype": "Long Text",
    "label": "Apps and Versions",
    "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "followers_section",
+   "fieldtype": "Section Break",
+   "label": "Followers"
+  },
+  {
+   "fieldname": "followers",
+   "fieldtype": "Table",
+   "label": "Followers",
+   "options": "Support Ticket Follower",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-31 12:00:00.000000",
+ "modified": "2026-11-01 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Helpdesk Client",
  "name": "Support Ticket",

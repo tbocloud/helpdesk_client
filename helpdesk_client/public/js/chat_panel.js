@@ -11,7 +11,8 @@ frappe.provide("genie");
 genie.SupportChat = class SupportChat {
 	constructor(opts = {}) {
 		if (genie.support_chat && document.body.contains(genie.support_chat.panel)) {
-			genie.support_chat.show(opts.tab, opts.ticket);
+			if (opts.about) genie.support_chat.about(opts.about);
+			else genie.support_chat.show(opts.tab, opts.ticket);
 			return genie.support_chat;
 		}
 		genie.support_chat = this;
@@ -24,7 +25,106 @@ genie.SupportChat = class SupportChat {
 		genie.support_inbox
 			.load()
 			.catch(() => null)
-			.then(() => this.show(opts.tab, opts.ticket));
+			.then(() => (opts.about ? this.about(opts.about) : this.show(opts.tab, opts.ticket)));
+		window.addEventListener("resize", () => this.visible() && this.layout());
+		frappe.router.on("change", () => this.visible() && this.layout());
+	}
+
+	visible() {
+		return this.panel.style.display !== "none";
+	}
+
+	// Get help on a form (Phase 14): a new chat about the record, or about the error it showed.
+	about(ctx) {
+		this.show("chats", null, true);
+		this.picked.chats = null;
+		this.render_top();
+		if (ctx.error) this.view.start_with_error(ctx);
+		else this.view.start_about(ctx);
+	}
+
+	// Docked beside the page on wide screens (the page shrinks), over it below that and on the
+	// point-of-sale and print pages. The width is the user's, remembered in this browser.
+	layout() {
+		const width = genie.panel_width();
+		const dock = this.visible() && genie.should_dock();
+		document.body.classList.toggle("genie-docked", dock);
+		document.documentElement.style.setProperty(
+			"--genie-docked-width",
+			dock ? `${width}px` : "0px"
+		);
+		Object.assign(
+			this.panel.style,
+			dock
+				? {
+						top: "0",
+						right: "0",
+						bottom: "0",
+						width: `${width}px`,
+						maxWidth: "none",
+						height: "auto",
+						maxHeight: "none",
+						border: "0",
+						borderLeft: "1px solid var(--border-color, #e2e6e9)",
+						borderRadius: "0",
+						boxShadow: "none",
+				  }
+				: {
+						top: "auto",
+						right: "24px",
+						bottom: "90px",
+						width: `${width}px`,
+						maxWidth: "calc(100vw - 32px)",
+						height: "620px",
+						maxHeight: "80vh",
+						border: "1px solid var(--border-color, #e2e6e9)",
+						borderRadius: "12px",
+						boxShadow: "var(--shadow-lg, 0 8px 24px rgba(0,0,0,.18))",
+				  }
+		);
+		// beside the page it is part of it; over the page it is a dialog
+		this.panel.setAttribute("role", dock ? "complementary" : "dialog");
+		this.resizer.setAttribute("aria-valuenow", String(width));
+	}
+
+	set_width(width) {
+		genie.save_panel_width(width);
+		this.layout();
+	}
+
+	add_resizer() {
+		const handle = document.createElement("div");
+		handle.className = "genie-sp-resize";
+		handle.tabIndex = 0;
+		handle.setAttribute("role", "separator");
+		handle.setAttribute("aria-orientation", "vertical");
+		handle.setAttribute("aria-label", __("Resize the Support panel"));
+		handle.setAttribute("aria-valuemin", String(genie.PANEL_MIN));
+		handle.setAttribute("aria-valuemax", String(genie.PANEL_MAX));
+		handle.title = __("Drag to resize");
+		handle.addEventListener("pointerdown", (e) => {
+			e.preventDefault();
+			const startX = e.clientX;
+			const startWidth = genie.panel_width();
+			document.body.style.userSelect = "none";
+			const move = (ev) => this.set_width(startWidth + (startX - ev.clientX));
+			const up = () => {
+				window.removeEventListener("pointermove", move);
+				window.removeEventListener("pointerup", up);
+				document.body.style.userSelect = "";
+			};
+			window.addEventListener("pointermove", move);
+			window.addEventListener("pointerup", up);
+		});
+		handle.addEventListener("keydown", (e) => {
+			const step = e.shiftKey ? 64 : 16;
+			if (e.key === "ArrowLeft") this.set_width(genie.panel_width() + step);
+			else if (e.key === "ArrowRight") this.set_width(genie.panel_width() - step);
+			else return;
+			e.preventDefault();
+		});
+		this.panel.appendChild(handle);
+		this.resizer = handle;
 	}
 
 	build() {
@@ -82,8 +182,23 @@ genie.SupportChat = class SupportChat {
 				this.render_top();
 			},
 			on_new_chat: () => this.new_chat(),
+			// a screenshot or recording finished while the panel was closed
+			reveal: () => this.show(),
 		});
+		this.add_resizer();
 		panel.querySelector(".genie-sp-close").onclick = () => this.hide();
+		// Esc closes the panel and goes back to the Support button (a dialog over it keeps its own Esc)
+		panel.addEventListener("keydown", (e) => {
+			if (e.key !== "Escape" || e.defaultPrevented) return;
+			if (document.querySelector(".modal.show")) return;
+			e.preventDefault();
+			this.hide();
+			// after Frappe's own Esc, which blurs whatever has focus
+			setTimeout(() => {
+				const fab = document.getElementById("genie-support-fab");
+				if (fab) fab.focus();
+			}, 0);
+		});
 		panel.querySelector(".genie-sp-full").onclick = () => {
 			this.hide();
 			const name =
@@ -104,12 +219,14 @@ genie.SupportChat = class SupportChat {
 	hide() {
 		this.panel.style.display = "none";
 		document.body.classList.remove("genie-support-open");
+		this.layout();
 	}
 
-	// tab: tickets / chats / actions; for tickets, which one to open
-	show(tab, ticket) {
+	// tab: tickets / chats / actions; for tickets, which one to open; quiet: only switch the tab
+	show(tab, ticket, quiet) {
 		const data = genie.support_inbox.data;
 		this.panel.style.display = "flex";
+		this.layout();
 		// the red button sits where the panel opens; the Action needed tab says the same
 		document.body.classList.add("genie-support-open");
 		tab = tab || this.tab || (data.tickets.length ? "tickets" : "chats");
@@ -126,7 +243,7 @@ genie.SupportChat = class SupportChat {
 		this.view_box.style.display = tab === "actions" ? "none" : "flex";
 		this.render_top();
 		this.render_actions();
-		if (!changed) return;
+		if (!changed || quiet) return;
 		if (tab === "tickets") {
 			this.picked.tickets = this.picked.tickets || (data.tickets[0] && data.tickets[0].name);
 			if (this.picked.tickets) this.view.open_ticket(this.picked.tickets);
@@ -255,4 +372,37 @@ genie.SupportChat = class SupportChat {
 			)
 		);
 	}
+};
+
+genie.PANEL_MIN = 360;
+genie.PANEL_MAX = 640;
+
+genie.panel_width = function () {
+	let width = 420;
+	try {
+		width = parseInt(localStorage.getItem("genie-panel-width"), 10) || 420;
+	} catch (e) {
+		// no storage in this browser: the default width
+	}
+	return Math.min(genie.PANEL_MAX, Math.max(genie.PANEL_MIN, width));
+};
+
+genie.save_panel_width = function (width) {
+	width = Math.round(Math.min(genie.PANEL_MAX, Math.max(genie.PANEL_MIN, width)));
+	try {
+		localStorage.setItem("genie-panel-width", String(width));
+	} catch (e) {
+		// the panel still resizes for this page
+	}
+};
+
+genie.should_dock = function () {
+	const page = (frappe.get_route() || [])[0] || "";
+	return (
+		window.innerWidth >= 1280 &&
+		// the Support page has the chat itself (the panel hides there); the till and print views need the width
+		!["support-chat", "point-of-sale", "pos", "print", "printview"].includes(
+			String(page).toLowerCase()
+		)
+	);
 };

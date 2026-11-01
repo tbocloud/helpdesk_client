@@ -11,7 +11,9 @@
   "ticket",
   "hub_conversation",
   "language",
-  "last_message_at"
+  "last_message_at",
+  "ref_doctype",
+  "ref_docname"
  ],
  "fields": [
   {
@@ -56,12 +58,25 @@
    "fieldtype": "Datetime",
    "label": "Last Message",
    "read_only": 1
+  },
+  {
+   "description": "The record the chat started on (Get help on a form).",
+   "fieldname": "ref_doctype",
+   "fieldtype": "Data",
+   "label": "Record type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ref_docname",
+   "fieldtype": "Data",
+   "label": "Record",
+   "read_only": 1
   }
  ],
  "in_create": 1,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-28 14:00:00.000000",
+ "modified": "2026-11-01 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Helpdesk Client",
  "name": "Support Conversation",

@@ -35,6 +35,9 @@ class SupportTicket(Document):
 		if now["dot"] == inbox.RED and inbox.state(previous)["dot"] != inbox.RED:
 			# one notice saying what is needed, instead of the status or stage one
 			notify_action_needed(self, now["action"])
+			if previous.status != self.status:
+				# the colleagues who follow it hear the status as usual: nothing waits for them (Phase 14)
+				notify_status_change(self, self.status, followers_only=True)
 			return
 		self.notify_status_change(previous)
 		self.notify_stage_change(previous)
@@ -56,20 +59,33 @@ def is_raiser(doc, user: str | None = None) -> bool:
 	return user in (doc.owner, doc.raised_by)
 
 
+def is_follower(doc, user: str | None = None) -> bool:
+	"""A colleague who has the same problem and follows the ticket (Phase 14)."""
+	user = user or frappe.session.user
+	return any(f.user == user for f in doc.get("followers") or [])
+
+
 def get_permission_query_conditions(user):
 	user = user or frappe.session.user
 	if "System Manager" in frappe.get_roles(user):
 		return ""
 	escaped = frappe.db.escape(user)
-	return f"(`tabSupport Ticket`.`owner` = {escaped} or `tabSupport Ticket`.`raised_by` = {escaped})"
+	return (
+		f"(`tabSupport Ticket`.`owner` = {escaped} or `tabSupport Ticket`.`raised_by` = {escaped}"
+		" or `tabSupport Ticket`.`name` in (select `parent` from `tabSupport Ticket Follower`"
+		f" where `parenttype` = 'Support Ticket' and `user` = {escaped}))"
+	)
 
 
 def has_permission(doc, ptype=None, user=None):
-	"""A single ticket is for its owner, the person it was raised for, and System Managers."""
+	"""A single ticket is for its owner, the person it was raised for, and System Managers.
+	A colleague who follows it may read it; only the raiser changes it."""
 	user = user or frappe.session.user
 	if user == "Administrator" or "System Manager" in frappe.get_roles(user):
 		return True
-	return is_raiser(doc, user)
+	if is_raiser(doc, user):
+		return True
+	return (ptype or "read") in ("read", "print") and is_follower(doc, user)
 
 
 def _require_raiser(doc):

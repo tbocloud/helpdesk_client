@@ -33,10 +33,12 @@
   "support_portal_section",
   "enable_ticket_raising",
   "enable_chat",
+  "show_similar_tickets",
   "fallback_contact_email",
   "column_break_nuxg",
   "save_recording",
   "max_recording_size",
+  "max_recording_minutes",
   "ticket_details",
   "session_replay_section",
   "enable_session_replay",
@@ -299,11 +301,27 @@
    "label": "Support User",
    "default": "support@teambackoffice.com",
    "description": "The user TBO Support (the hub) signs in as on this site. Generate its API keys during registration. Changing it after registration disconnects the hub."
+  },
+  {
+   "default": "3",
+   "description": "A screen recording from the chat stops by itself after this long.",
+   "fieldname": "max_recording_minutes",
+   "fieldtype": "Int",
+   "label": "Longest recording (minutes)",
+   "non_negative": 1
+  },
+  {
+   "default": "1",
+   "depends_on": "enable_chat",
+   "description": "Before a new ticket is raised from the chat, show up to two open tickets from colleagues that look the same, with \"This is my issue, add me to it\". Only their title and status show, never HR or payroll tickets.",
+   "fieldname": "show_similar_tickets",
+   "fieldtype": "Check",
+   "label": "Show similar tickets from colleagues"
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-10-28 14:00:00.000000",
+ "modified": "2026-11-01 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Helpdesk Client",
  "name": "HDS Support Settings",
