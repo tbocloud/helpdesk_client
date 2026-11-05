@@ -155,7 +155,11 @@ def change_digest(change: dict, expect=None) -> str:
 
 def names(payload: dict, doctype: str, name: str, action: str, item: str = "", digest: str = "") -> bool:
 	"""Whether the approval covers this record and action: the same change item and
-	the same values when the approval says which."""
+	the same values when the approval says which.
+
+	The item must match exactly, also when the call leaves it out: an approved
+	change is applied once per change set and item, so a call without the item
+	would get past that check."""
 	for record in payload.get("records") or []:
 		if not isinstance(record, dict):
 			continue
@@ -165,7 +169,7 @@ def names(payload: dict, doctype: str, name: str, action: str, item: str = "", d
 			action,
 		):
 			continue
-		if item and record.get("item") != item:
+		if str(record.get("item") or "") != (item or ""):
 			continue
 		if record.get("digest") and record.get("digest") != digest:
 			continue
@@ -391,7 +395,8 @@ def record(
 
 
 def already_applied(change_set: str, item: str) -> bool:
-	"""A change item that was applied once is not applied again (a retried call would create twice)."""
+	"""A change item that was applied once is not applied again: a retried create would
+	create twice, and a replayed update would undo a person's later correction."""
 	return bool(
 		change_set
 		and item

@@ -6,9 +6,10 @@
 A change is `{item, action: update|create, doctype, name, values: {field: value},
 rows: [{table, name, values}], add_rows: [{table, values}]}`: `rows` are existing
 table rows, `add_rows` new ones. `check_change` writes nothing and runs none of
-the site's own code; `apply_change` saves with the site's normal validation, and
+the site's own code; `apply_change` saves with the site's normal validation,
 refuses a record whose changed fields no longer hold the values the approval was
-given for.
+given for, and applies each approved change once: a second call for the same
+change set and item is refused, also after a person put the old values back.
 """
 
 import frappe
@@ -194,10 +195,10 @@ def apply_change(change, expect=None, approval=None, **_kwargs):
 	"""Applies one approved change to one record, if it still holds the values the approval was given for."""
 	change = write_guard.parse_change(change)
 	payload = write_guard.read_approval(approval) if approval else {}
+	if write_guard.already_applied(payload.get("change_set"), change["item"]):
+		raise write_guard.ChangedSince(_("This change was applied already."))
 	meta = frappe.get_meta(change["doctype"])
 	if change["action"] == "create":
-		if write_guard.already_applied(payload.get("change_set"), change["item"]):
-			raise write_guard.ChangedSince(_("This change was applied already."))
 		if problems := _change_problems(meta, change, None):
 			frappe.throw("; ".join(problems))
 		doc = frappe.get_doc({"doctype": change["doctype"], **change["values"]})
@@ -292,7 +293,7 @@ register_tool(
 
 register_tool(
 	"apply_change",
-	description="Apply one approved change to one record. `expect` holds the values the approval was given for: a record that no longer holds them is left as it is. On a Production site `approval` is TBO Support's signed approval for this record.",
+	description="Apply one approved change to one record. `expect` holds the values the approval was given for: a record that no longer holds them is left as it is. Each approved change is applied once: a second call for it is refused as applied already. On a Production site `approval` is TBO Support's signed approval for this record.",
 	input_schema={
 		"type": "object",
 		"properties": {

@@ -361,6 +361,30 @@ class TestApplyChange(GuardCase):
 		self.assertIn("applied already", text(second))
 		self.assertEqual(frappe.db.count("ToDo", {"description": "made by an approved correction"}), 1)
 
+	def test_an_approved_update_is_applied_once(self):
+		change, expect = self.update({"priority": "High"}, {"priority": "Low"})
+		token = self.signed(change, expect)
+		first = self.apply(change, expect, token)
+		frappe.db.set_value("ToDo", self.todo.name, "priority", "Low")  # a person puts it back
+
+		second = self.apply(change, expect, token)
+
+		self.assertFalse(first["isError"], text(first))
+		self.assertTrue(second["isError"])
+		self.assertIn("applied already", text(second))
+		self.assertEqual(frappe.db.get_value("ToDo", self.todo.name, "priority"), "Low")
+		self.assertEqual(log_rows(self.todo.name)[-1].status, "Refused")
+
+	def test_a_call_without_the_approved_item_is_not_covered(self):
+		change, expect = self.update({"priority": "High"}, {"priority": "Low"})
+		token = self.signed(change, expect)
+		without_item = {key: value for key, value in change.items() if key != "item"}
+
+		result = self.apply(without_item, expect, token)
+
+		self.assertIn("does not cover", text(result))
+		self.assertEqual(frappe.db.get_value("ToDo", self.todo.name, "priority"), "Low")
+
 	def test_table_rows_change_through_their_record(self):
 		self.allow("Note")
 		note = frappe.get_doc(
