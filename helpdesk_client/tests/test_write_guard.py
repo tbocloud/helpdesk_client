@@ -48,6 +48,23 @@ def text(result) -> str:
 	return result["content"][0]["text"]
 
 
+def second_connection():
+	"""A connection of its own to this site's database, like a second request at the same moment."""
+	from frappe.database import get_db
+
+	conf = frappe.conf
+	db = get_db(
+		socket=conf.db_socket,
+		host=conf.db_host,
+		port=conf.db_port,
+		user=conf.db_name,
+		password=conf.db_password,
+		cur_db_name=conf.db_name,
+	)
+	db.connect()
+	return db
+
+
 def log_rows(name):
 	return frappe.get_all(
 		"HDS Change Log",
@@ -222,6 +239,8 @@ class TestTheLists(GuardCase):
 			"set_value", {"doctype": "User", "name": "Administrator", "fieldname": "bio", "value": "x"}
 		)
 		self.assertIn("never changes User", text(result))
+		# the hub can never pre-claim a change item, or remove a claim, through the write tools
+		self.assertIn("HDS Change Claim", write_guard.NEVER_WRITE)
 
 	def test_the_write_switch_still_comes_first(self):
 		frappe.db.set_single_value("HDS Support Settings", "allow_write_operations", 0)
@@ -384,6 +403,53 @@ class TestApplyChange(GuardCase):
 
 		self.assertIn("does not cover", text(result))
 		self.assertEqual(frappe.db.get_value("ToDo", self.todo.name, "priority"), "Low")
+
+	def test_a_simultaneous_replay_cannot_take_the_item_while_the_first_apply_holds_it(self):
+		change, expect = self.update({"priority": "High"}, {"priority": "Low"})
+		first = self.apply(change, expect)  # applied; its transaction is still open (commits are held)
+		self.assertFalse(first["isError"], text(first))
+
+		# a second apply of the same item, on its own connection, at the same moment
+		other = second_connection()
+		try:
+			other.sql("SET SESSION innodb_lock_wait_timeout = 1")
+			with self.assertRaises(frappe.QueryTimeoutError):
+				other.sql(
+					"INSERT INTO `tabHDS Change Claim` (`name`, `change_set`, `change_item`) VALUES (%s, %s, %s)",
+					(write_guard.claim_name(CHANGE_SET, "ITEM-1"), CHANGE_SET, "ITEM-1"),
+				)
+		finally:
+			other.close()
+		self.assertEqual(frappe.db.get_value("ToDo", self.todo.name, "priority"), "High")
+
+	def test_an_item_another_apply_claimed_is_refused_before_anything_is_written(self):
+		change = {
+			"item": "ITEM-CLAIMED",
+			"action": "create",
+			"doctype": "ToDo",
+			"values": {"description": "claimed by another apply", "priority": "High"},
+		}
+		write_guard.claim(CHANGE_SET, "ITEM-CLAIMED")  # the other apply came first and committed
+
+		result = self.apply(change, None)
+
+		self.assertTrue(result["isError"])
+		self.assertIn("applied already", text(result))
+		self.assertEqual(frappe.db.count("ToDo", {"description": "claimed by another apply"}), 0)
+
+	def test_a_refused_write_leaves_the_item_free_to_apply(self):
+		change, expect = self.update({"priority": "High"}, {"priority": "Low"})
+		token = self.signed(change, expect)
+		frappe.db.set_value("ToDo", self.todo.name, "priority", "Medium")  # someone edits it
+
+		refused = self.apply(change, expect, token)
+
+		self.assertIn("changed since it was checked", text(refused))
+		self.assertFalse(frappe.db.exists("HDS Change Claim", write_guard.claim_name(CHANGE_SET, "ITEM-1")))
+		frappe.db.set_value("ToDo", self.todo.name, "priority", "Low")  # back as approved
+		applied = self.apply(change, expect, token)
+		self.assertFalse(applied["isError"], text(applied))
+		self.assertTrue(frappe.db.exists("HDS Change Claim", write_guard.claim_name(CHANGE_SET, "ITEM-1")))
 
 	def test_table_rows_change_through_their_record(self):
 		self.allow("Note")

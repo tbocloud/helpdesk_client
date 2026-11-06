@@ -197,6 +197,8 @@ def apply_change(change, expect=None, approval=None, **_kwargs):
 	payload = write_guard.read_approval(approval) if approval else {}
 	if write_guard.already_applied(payload.get("change_set"), change["item"]):
 		raise write_guard.ChangedSince(_("This change was applied already."))
+	# taken before the write and committed with it: a simultaneous replay waits, then is refused
+	write_guard.claim(payload.get("change_set"), change["item"])
 	meta = frappe.get_meta(change["doctype"])
 	if change["action"] == "create":
 		if problems := _change_problems(meta, change, None):

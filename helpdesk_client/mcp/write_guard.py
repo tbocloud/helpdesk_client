@@ -54,6 +54,7 @@ NEVER_WRITE = frozenset(
 		"Data Import",
 		"HDS Support Settings",
 		"HDS Change Log",
+		"HDS Change Claim",
 	}
 )
 
@@ -404,6 +405,35 @@ def already_applied(change_set: str, item: str) -> bool:
 			"HDS Change Log", {"change_set": change_set, "change_item": item, "status": "Applied"}
 		)
 	)
+
+
+def claim_name(change_set: str, item: str) -> str:
+	"""The HDS Change Claim row of one change item: the same pair always gives the same name."""
+	return hashlib.sha256(f"{change_set}\n{item}".encode()).hexdigest()
+
+
+def claim(change_set: str, item: str) -> None:
+	"""Takes the one right to apply this change item, inside the write's own transaction.
+
+	The claim's name is the change set and item, so the table's primary key lets only
+	one transaction hold it: a second, simultaneous apply of the same item waits for
+	the first and then cannot insert it, and is refused as applied already. When the
+	write fails, its rollback removes the claim too, so the item can still be applied.
+	"""
+	if not (change_set and item):
+		return
+	now = frappe.utils.now()
+	try:
+		frappe.db.sql(
+			"""INSERT INTO `tabHDS Change Claim`
+				(`name`, `change_set`, `change_item`, `owner`, `modified_by`, `creation`, `modified`)
+			VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+			(claim_name(change_set, item), change_set, item, frappe.session.user, frappe.session.user, now, now),
+		)
+	except Exception as e:
+		if frappe.db.is_primary_key_violation(e):
+			raise ChangedSince(_("This change was applied already.")) from e
+		raise
 
 
 def snapshot(tool: str, arguments: dict) -> dict | None:
