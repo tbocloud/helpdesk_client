@@ -14,6 +14,7 @@
   "category",
   "priority",
   "screen_recording",
+  "client_message_id",
   "close_requested",
   "last_synced",
   "progress_section",
@@ -117,6 +118,15 @@
    "fieldname": "screen_recording",
    "fieldtype": "Data",
    "label": "Screen Recording URL",
+   "read_only": 1
+  },
+  {
+   "description": "The browser's id for the request that raised this ticket: the same request sent again returns this ticket instead of raising a second one.",
+   "fieldname": "client_message_id",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Client Message ID",
+   "no_copy": 1,
    "read_only": 1
   },
   {
@@ -337,7 +347,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-11-01 09:00:00.000000",
+ "modified": "2026-11-16 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Helpdesk Client",
  "name": "Support Ticket",

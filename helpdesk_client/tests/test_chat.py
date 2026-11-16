@@ -210,6 +210,122 @@ class TestTheConversation(ChatCase):
 		self.assertEqual((linked["action"], linked["client_ticket"]), ("linked", ticket.name))
 
 
+MESSAGE_ID = "0f8e5a1c2b3d4e5f8a9b0c1d2e3f4a5b"
+
+
+def hub_refuses(message):
+	"""A refusal from TBO Support as Frappe sends it: HTTP 417 with its message."""
+	response = MagicMock(status_code=417)
+	response.json.return_value = {"_server_messages": json.dumps([json.dumps({"message": message})])}
+	return response
+
+
+class TestDelivery(ChatCase):
+	"""Phase 23 B1 and B3: a message TBO Support did not take never shows as sent, and a retry is safe."""
+
+	def customer_rows(self, name):
+		return frappe.get_all(
+			chat.MESSAGE,
+			filters={"conversation": name, "direction": "Customer"},
+			fields=["text", "client_message_id"],
+		)
+
+	def test_a_message_the_hub_did_not_take_is_not_kept_and_says_why(self):
+		name = self.start()["conversation"]
+		# the chat is switched off on the hub: it answers enabled false and records nothing
+		self.replies.append(hub_says(enabled=False))
+		off = chat.send(name, "Is anyone there?")
+		self.assertFalse(off["ok"])
+		self.assertIn("switched off", off["error"])
+		# a refusal with its own words
+		self.replies.append(hub_says(ok=False, message="<b>This chat</b> is paused for your company."))
+		refused = chat.send(name, "Hello again")
+		self.assertEqual((refused["ok"], refused["error"]), (False, "This chat is paused for your company."))
+		self.assertEqual(self.customer_rows(name), [])
+
+	def test_the_hubs_own_reason_is_shown_not_did_not_reach(self):
+		name = self.start()["conversation"]
+		self.replies.append(hub_refuses("There is no summary to raise yet."))
+		r = chat.send(name, action="raise")
+		self.assertEqual((r["ok"], r["error"]), (False, "There is no summary to raise yet."))
+
+	def test_a_failed_send_keeps_nothing_and_its_retry_goes_once(self):
+		name = self.start()["conversation"]
+		self.replies.append(MagicMock(status_code=503))
+		failed = chat.send(name, "The stock report is empty", client_message_id=MESSAGE_ID)
+		self.assertFalse(failed["ok"])
+		self.assertEqual(self.customer_rows(name), [])
+
+		self.replies.append(
+			hub_says(
+				messages=[{"name": "m2", "direction": "Assistant", "kind": "Question", "text": "Since when?"}]
+			)
+		)
+		sent = chat.send(name, "The stock report is empty", client_message_id=MESSAGE_ID)
+		self.assertTrue(sent["ok"])
+		self.assertEqual(json.loads(self.posted[-1][1])["client_message_id"], MESSAGE_ID)
+		self.assertEqual(
+			[(r.text, r.client_message_id) for r in self.customer_rows(name)],
+			[("The stock report is empty", MESSAGE_ID)],
+		)
+
+		# it went through but the answer was lost on the way back: the same id is not passed on again
+		relayed = len(self.posted)
+		again = chat.send(name, "The stock report is empty", client_message_id=MESSAGE_ID.upper())
+		self.assertEqual(len(self.posted), relayed)
+		self.assertTrue(again["duplicate"])
+		self.assertEqual([m["text"] for m in again["messages"]], ["Since when?"])
+		self.assertEqual(len(self.customer_rows(name)), 1)
+
+	def test_an_id_that_is_not_one_is_ignored(self):
+		name = self.start()["conversation"]
+		chat.send(name, "hello", client_message_id="1; drop table")
+		self.assertIsNone(json.loads(self.posted[-1][1])["client_message_id"])
+
+	def test_a_form_ticket_sent_twice_is_one_ticket(self):
+		from helpdesk_client.utils.support import create_ticket
+
+		frappe.set_user(USER)
+		with patch("helpdesk_client.utils.hub_ping.frappe.enqueue"):
+			first = create_ticket("Printer offline", "<p>offline</p>", client_message_id=MESSAGE_ID)
+			again = create_ticket("Printer offline", "<p>offline</p>", client_message_id=MESSAGE_ID)
+			other = create_ticket("Printer offline", "<p>offline</p>")
+		self.assertEqual(first, again)
+		self.assertNotEqual(first, other)
+		self.assertEqual(frappe.db.count("Support Ticket", {"client_message_id": MESSAGE_ID}), 1)
+
+	def test_a_form_ticket_chat_the_hub_refuses_is_not_kept(self):
+		frappe.set_user(USER)
+		with patch("helpdesk_client.utils.hub_ping.frappe.enqueue"):
+			t = frappe.get_doc(
+				{
+					"doctype": "Support Ticket",
+					"subject": "Margins",
+					"description": "<p>x</p>",
+					"status": "Open",
+				}
+			).insert(ignore_permissions=True)
+		t.db_set("ticket_id", "0077")
+		self.replies.append(hub_says(enabled=False))
+		opened = chat.open_ticket(t.name)
+		self.assertTrue(opened["read_only"])
+		self.assertFalse(frappe.db.exists(chat.CONVERSATION, {"ticket": t.name}))
+
+	def test_a_raised_ticket_without_a_title_is_named_by_the_first_line(self):
+		name = self.start()["conversation"]
+		chat.send(name, "Delivery notes print without the logo")
+		self.replies.append(hub_says(state="Ticket raised", ticket="0313", fields={}))
+		with patch("helpdesk_client.utils.hub_ping.frappe.enqueue"):
+			reply = chat.send(name, action="raise")
+		self.assertEqual(
+			frappe.db.get_value("Support Ticket", reply["ticket"], "subject"),
+			"Delivery notes print without the logo",
+		)
+		# every later message names the site's ticket, so TBO Support can link a chat whose link was lost
+		chat.send(name, "one more thing")
+		self.assertEqual(json.loads(self.posted[-1][1])["client_ticket"], reply["ticket"])
+
+
 class TestFromTheHub(ChatCase):
 	def test_post_message_is_post_only_for_the_support_user_once_and_live(self):
 		name = self.start()["conversation"]

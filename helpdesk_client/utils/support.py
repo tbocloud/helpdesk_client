@@ -8,6 +8,7 @@ from frappe import _
 from frappe.utils import cint, flt
 from frappe.utils.safe_exec import get_safe_globals, safe_eval
 
+from helpdesk_client.utils import message_id
 from helpdesk_client.utils.context import refuse_hub_user, ticket_context
 from helpdesk_client.utils.session_replay import attach_session_files
 
@@ -23,17 +24,30 @@ def create_ticket(
 	page_route: str = "",
 	ref_doctype: str = "",
 	ref_docname: str = "",
+	client_message_id: str = "",
 ):
 	"""Record a support request locally.
 
 	The Hub picks it up over MCP and creates the Helpdesk ticket, so the
 	client stores no credentials and makes no outbound call. Returns the
 	local Support Ticket name — there is no Helpdesk ID yet.
+
+	`client_message_id` is the form's id for this request, the same when the
+	user presses Raise again after an error: the ticket it raised already is
+	returned instead of a second one.
 	"""
 	settings = frappe.get_cached_doc("HDS Support Settings")
 	if not settings.enable_ticket_raising:
 		frappe.throw(_("Ticket raising is not enabled for this site."))
 	refuse_hub_user()
+
+	request = message_id(client_message_id)
+	if request:
+		raised = frappe.db.get_value(
+			"Support Ticket", {"client_message_id": request, "owner": frappe.session.user}, "name"
+		)
+		if raised:
+			return raised
 
 	doc = frappe.get_doc(
 		{
@@ -43,6 +57,7 @@ def create_ticket(
 			"status": "Pending",
 			"raised_by": frappe.session.user,
 			"screen_recording": screen_recording,
+			"client_message_id": request,
 			# where the user was and who they are, so support can start from the right place
 			**ticket_context(settings, page_route, ref_doctype, ref_docname),
 		}

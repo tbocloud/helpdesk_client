@@ -14,6 +14,32 @@ genie.DOT_LABELS = {
 };
 genie.DOT_EMOJI = { green: "🟢", red: "🔴", orange: "🟠" };
 
+// The id of one message or ticket request (a uuid4 as 32 hex characters). It is made once and sent again
+// with every retry of the same message, so TBO Support and this site take it once. getRandomValues works on
+// plain-http sites too, where crypto.randomUUID does not.
+genie.new_message_id = function () {
+	const bytes = new Uint8Array(16);
+	window.crypto.getRandomValues(bytes);
+	bytes[6] = (bytes[6] & 0x0f) | 0x40;
+	bytes[8] = (bytes[8] & 0x3f) | 0x80;
+	return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+};
+
+// The server's own words when it refused a call (Frappe's message), as plain text; "" when it gave none.
+genie.server_message = function (r) {
+	try {
+		const messages = JSON.parse((r && r._server_messages) || "[]");
+		const first = messages.length ? JSON.parse(messages[0]) : null;
+		const text = first && typeof first === "object" ? first.message : first;
+		// parsed in an inert document: nothing in it runs or loads
+		return text
+			? new DOMParser().parseFromString(String(text), "text/html").body.textContent.trim()
+			: "";
+	} catch (e) {
+		return "";
+	}
+};
+
 genie.dot = function (colour) {
 	const span = document.createElement("span");
 	span.className = `genie-sc-dot genie-sc-dot-${colour || "none"}`;
@@ -149,6 +175,8 @@ genie.SupportChatView = class SupportChatView {
 		this.busy = false;
 		this.tray = []; // files waiting to go with the next message (Phase 14)
 		this.pending = null; // Get help on a form: the chat starts on the first message
+		this.draft = null; // the message being sent, with its id: the same id when it is sent again
+		this.shown = new Set(); // the messages on screen, so one that comes twice shows once
 		this.build(parent);
 		frappe.realtime.on("helpdesk_client_chat", (data) => {
 			if (
@@ -230,15 +258,32 @@ genie.SupportChatView = class SupportChatView {
 		return frappe.xcall(`helpdesk_client.${method}`, args);
 	}
 
+	// A message to TBO Support: a refusal comes back as an Error with the server's own words, shown in the
+	// chat instead of a pop-up.
+	send_call(args) {
+		return new Promise((resolve, reject) => {
+			frappe.call({
+				method: "helpdesk_client.chat.send",
+				type: "POST",
+				args,
+				silent: true,
+				callback: (r) => resolve(r.message),
+				error: (r) => reject(new Error(genie.server_message(r))),
+			});
+		});
+	}
+
 	// --- what the view shows ----------------------------------------------------------------------
 
 	waiting() {
 		this.conversation = null;
 		this.ticket = null;
 		this.pending = null;
+		this.draft = null;
 		this.status_closed = false;
 		this.render_about();
 		this.body.innerHTML = "";
+		this.shown.clear();
 		this.head.hidden = this.status.hidden = this.foot.hidden = this.closed.hidden = true;
 		this.typing(true);
 	}
@@ -316,6 +361,7 @@ genie.SupportChatView = class SupportChatView {
 		this.conversation = r.conversation || null;
 		this.ticket = r.ticket_state || null;
 		this.body.innerHTML = "";
+		this.shown.clear();
 		(r.messages || []).forEach((m) => this.append(m));
 		if (r.note) this.append({ direction: "System", kind: "Text", text: r.note });
 		this.render_head();
@@ -458,6 +504,11 @@ genie.SupportChatView = class SupportChatView {
 	}
 
 	append(message) {
+		if (message.name) {
+			// the same message can come in the answer and live (or again, after a retry)
+			if (this.shown.has(message.name)) return null;
+			this.shown.add(message.name);
+		}
 		const mine = message.direction === "Customer";
 		const wrap = document.createElement("div");
 		wrap.style.cssText = `display:flex;flex-direction:column;align-items:${
@@ -525,13 +576,17 @@ genie.SupportChatView = class SupportChatView {
 		if (actions.length && this.conversation && !(this.ticket && this.ticket.closed)) {
 			const row = document.createElement("div");
 			row.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;margin-top:6px";
+			const ids = {}; // one id per button of this card, the same when it is pressed again
 			actions.forEach((a) => {
 				const b = this.button(
 					a.label,
 					a.style === "positive" ? "btn-primary" : "btn-default",
-					() => {
-						row.querySelectorAll("button").forEach((x) => (x.disabled = true));
-						this.act(a.verb);
+					async () => {
+						const buttons = row.querySelectorAll("button");
+						buttons.forEach((x) => (x.disabled = true));
+						// it did not go (or a recording did not start): the buttons work again
+						if (!(await this.act(a.verb, ids)))
+							buttons.forEach((x) => (x.disabled = false));
 					}
 				);
 				row.appendChild(b);
@@ -544,6 +599,7 @@ genie.SupportChatView = class SupportChatView {
 		if (message.kind === "Summary" && !this.ticket && this.conversation) {
 			this.maybe_similar(wrap);
 		}
+		return wrap;
 	}
 
 	// Before a new ticket is raised: colleagues' open tickets that look the same (Phase 14).
@@ -627,25 +683,37 @@ genie.SupportChatView = class SupportChatView {
 
 	// --- what the user does -----------------------------------------------------------------------
 
+	// One message or button press to TBO Support. Its answer, or null when it did not go: then a line in the
+	// chat says why (the server's own words), and nothing shows as sent.
 	async post(args) {
-		if (!this.conversation || this.busy) return;
+		if (!this.conversation || this.busy) return null;
 		this.busy = true;
 		this.typing(true);
 		let r = null;
+		let why = "";
 		try {
-			r = await this.call("chat.send", { conversation: this.conversation, ...args });
-			(r.messages || []).forEach((m) => this.append(m));
+			r = await this.send_call({ conversation: this.conversation, ...args });
 		} catch (e) {
-			this.append({
-				direction: "System",
-				kind: "Text",
-				text: __("That did not reach TBO Support. Try again, or send a form instead."),
-			});
+			why = (e && e.message) || "";
 		} finally {
 			this.busy = false;
 			this.typing(false);
 		}
-		if (!r) return;
+		if (r && r.ok === false) {
+			why = r.error || "";
+			r = null;
+		}
+		if (!r) {
+			this.append({
+				direction: "System",
+				kind: "Text",
+				text: why
+					? __("Not sent: {0}", [why])
+					: __("Not sent: TBO Support could not be reached. Try again in a moment."),
+			});
+			return null;
+		}
+		(r.messages || []).forEach((m) => this.append(m));
 		genie.support_inbox.refresh_soon();
 		if (r.ticket && !this.ticket) {
 			// the chat became a ticket: from now on it is shown under the ticket's name
@@ -653,7 +721,21 @@ genie.SupportChatView = class SupportChatView {
 			else this.open_ticket(r.ticket);
 		} else if (this.ticket && ["fixed", "still_broken"].includes(args.action)) {
 			this.open_ticket(this.ticket.name);
+		} else if (r.status === "Closed" && !this.ticket) {
+			// answered, or joined a colleague's ticket: the chat ends, and typing more would go nowhere
+			this.status_closed = true;
+			this.render_foot(false);
 		}
+		return r;
+	}
+
+	// The message's id: the same while the same text and files are sent again after a failure.
+	message_id(text, files) {
+		const key = JSON.stringify([this.conversation, text, files.map((f) => f.file_url)]);
+		if (!this.draft || this.draft.key !== key) {
+			this.draft = { key, id: genie.new_message_id() };
+		}
+		return this.draft.id;
 	}
 
 	async send_text() {
@@ -676,30 +758,60 @@ genie.SupportChatView = class SupportChatView {
 				});
 				return;
 			}
+		}
+		const client_message_id = this.message_id(text, files);
+		this.input.value = "";
+		const mine = this.append({ direction: "Customer", kind: "Text", text, files });
+		const r = await this.post(
+			files.length
+				? { text, files: JSON.stringify(files), client_message_id }
+				: { text, client_message_id }
+		);
+		if (r) {
+			this.draft = null;
 			this.tray = [];
 			this.render_tray();
+			return;
 		}
-		this.input.value = "";
-		this.append({ direction: "Customer", kind: "Text", text, files });
-		this.post(files.length ? { text, files: JSON.stringify(files) } : { text });
+		// not sent: it comes off the chat and back into the box (its files stay in the tray), ready to send again
+		if (mine) mine.remove();
+		const typed = (this.input.value || "").trim();
+		this.input.value = typed ? `${text}\n${typed}` : text;
+		this.input.focus();
 	}
 
-	act(verb) {
+	// A card's button. True when it went (or the recording started); false and the buttons work again when not.
+	async act(verb, ids = {}) {
 		if (verb === "record") {
 			// TBO Support asked for it: the recording goes as soon as the user stops
 			this.awaiting_recording = true;
-			return this.record();
+			const started = await this.record();
+			if (!started) {
+				this.awaiting_recording = false;
+				this.append({
+					direction: "System",
+					kind: "Text",
+					text: __(
+						"The recording did not start. Press Record to try again, or Not now to go on without it."
+					),
+				});
+			}
+			return started;
 		}
 		if (verb === "fixed") return this.answer_fix(true);
 		if (verb === "still_broken") return this.answer_fix(false);
-		this.post({ action: verb });
+		ids[verb] = ids[verb] || genie.new_message_id();
+		return !!(await this.post({ action: verb, client_message_id: ids[verb] }));
 	}
 
 	// It's fixed / Still broken / It came back: recorded on the ticket, so its dot changes at once.
+	// True once it is recorded.
 	answer_fix(fixed, question) {
 		const go = (note) => {
 			if (this.conversation)
-				return this.post({ action: fixed ? "fixed" : "still_broken", note });
+				return this.post({ action: fixed ? "fixed" : "still_broken", note }).then(
+					(r) => !!r
+				);
 			const method = fixed ? "confirm_resolution" : "reopen";
 			return frappe
 				.xcall(
@@ -712,20 +824,34 @@ genie.SupportChatView = class SupportChatView {
 				.then(() => {
 					genie.support_inbox.refresh_soon();
 					this.open_ticket(this.ticket.name);
-				});
+					return true;
+				})
+				.catch(() => false);
 		};
 		if (fixed) return go("");
-		frappe.prompt(
-			{
-				fieldname: "note",
-				fieldtype: "Small Text",
-				label: question || __("What is still wrong?"),
-				reqd: 1,
-			},
-			(v) => go(v.note),
-			__("Tell TBO Support"),
-			__("Send")
-		);
+		return new Promise((resolve) => {
+			let answered = false;
+			const d = frappe.prompt(
+				{
+					fieldname: "note",
+					fieldtype: "Small Text",
+					label: question || __("What is still wrong?"),
+					reqd: 1,
+				},
+				(v) => {
+					answered = true;
+					go(v.note).then(resolve);
+				},
+				__("Tell TBO Support"),
+				__("Send")
+			);
+			// closed without sending: nothing happened
+			const onhide = d.onhide;
+			d.onhide = () => {
+				if (onhide) onhide();
+				setTimeout(() => !answered && resolve(false), 0);
+			};
+		});
 	}
 
 	async ask_status() {
@@ -841,14 +967,17 @@ genie.SupportChatView = class SupportChatView {
 		d.show();
 	}
 
+	// Each file is uploaded once: after a failed send it stays in the tray with its address, ready to go again.
 	async upload_tray() {
 		const files = [];
 		for (const item of this.tray) {
-			const url = await genie
-				.UploadFile(item.blob, item.name, { is_private: 1 })
-				.catch(() => null);
-			if (!url) return null;
-			files.push({ file_url: url, file_name: item.name });
+			if (!item.file_url) {
+				item.file_url = await genie
+					.UploadFile(item.blob, item.name, { is_private: 1 })
+					.catch(() => null);
+			}
+			if (!item.file_url) return null;
+			files.push({ file_url: item.file_url, file_name: item.name });
 		}
 		return files;
 	}
@@ -865,9 +994,13 @@ genie.SupportChatView = class SupportChatView {
 		});
 	}
 
-	record() {
-		if (genie.screen_recorder.recording()) return genie.screen_recorder.stop();
-		genie.screen_recorder.start((file) => this.recorded(file));
+	// True when a recording started (or one was stopped); false when the user said no in the browser's prompt.
+	async record() {
+		if (genie.screen_recorder.recording()) {
+			genie.screen_recorder.stop();
+			return true;
+		}
+		return genie.screen_recorder.start((file) => this.recorded(file));
 	}
 
 	recorded(file) {
@@ -885,8 +1018,17 @@ genie.SupportChatView = class SupportChatView {
 			.catch(() => null);
 		if (!url) return this.add_to_tray(file);
 		const files = [{ file_url: url, file_name: file.name }];
-		this.append({ direction: "Customer", kind: "Text", text: "", files });
-		this.post({ action: "recorded", files: JSON.stringify(files) });
+		const mine = this.append({ direction: "Customer", kind: "Text", text: "", files });
+		const r = await this.post({
+			action: "recorded",
+			files: JSON.stringify(files),
+			client_message_id: genie.new_message_id(),
+		});
+		if (!r) {
+			// not sent: the recording waits in the tray (uploaded already) to go with the next message
+			if (mine) mine.remove();
+			this.add_to_tray({ ...file, file_url: url });
+		}
 	}
 
 	// --- Get help on a form (Phase 14) ---------------------------------------------------------------

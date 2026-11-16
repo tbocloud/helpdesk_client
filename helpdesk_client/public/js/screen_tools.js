@@ -93,20 +93,21 @@ genie.screen_recorder = {
 		return Math.min(setting, site);
 	},
 
-	// on_done({blob, name, kind, size, seconds}) once the user stops (not when they discard)
+	// on_done({blob, name, kind, size, seconds}) once the user stops (not when they discard).
+	// True when the recording started; false when it could not (no screen capture, or the user said no).
 	async start(on_done) {
-		if (this.session) return;
+		if (this.session) return false;
 		if (!genie.can_record_screen()) {
 			frappe.msgprint(
 				__("This browser cannot record the screen; you can attach a screenshot instead.")
 			);
-			return;
+			return false;
 		}
 		let display;
 		try {
 			display = await navigator.mediaDevices.getDisplayMedia(genie.display_media_options());
 		} catch (e) {
-			return; // the user said no in the browser's own prompt
+			return false; // the user said no in the browser's own prompt
 		}
 		// the voice is optional, as in the form: without a microphone the screen is still recorded
 		let voice = null;
@@ -137,6 +138,7 @@ genie.screen_recorder = {
 		this.tick = setInterval(() => this.update_bar(), 500);
 		this.changed();
 		genie.announce(__("Recording the screen. Show the problem, then press Stop and attach."));
+		return true;
 	},
 
 	stop(discard = false) {

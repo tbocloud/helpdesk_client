@@ -133,7 +133,8 @@ def reopen(ticket: str, note: str) -> dict:
 	_require_raiser(doc)
 	if not (note or "").strip():
 		frappe.throw(_("Please say what is still wrong."))
-	if not _is_resolved(doc):
+	# a ticket the user asked to close is closed for them already (its chat says so) until TBO Support closes it
+	if not (_is_resolved(doc) or doc.close_requested):
 		frappe.throw(_("The ticket is still open; add a comment instead."))
 	doc.update(
 		{

@@ -3,6 +3,27 @@
 
 """Shared helpers for the Helpdesk Support Client app."""
 
+import re
+
+MESSAGE_ID = re.compile(r"^[0-9a-f]{32}$")
+
+
+def message_id(value) -> str | None:
+	"""The browser's id for one message or ticket request (a uuid4 as 32 hex characters).
+
+	The browser makes it once per message and sends the same id when it tries again, so a retry after a lost
+	answer never makes a second message or a second ticket. Anything else is ignored (None)."""
+	value = str(value or "").strip().lower()
+	return value if MESSAGE_ID.match(value) else None
+
+
+def site_connected(settings=None) -> bool:
+	"""Whether this site is connected to TBO Support: a ticket raised here reaches it only then."""
+	import frappe
+
+	settings = settings or frappe.get_cached_doc("HDS Support Settings")
+	return bool(settings.get("enabled") and settings.get("client_id"))
+
 
 def get_cache():
 	"""Return Frappe's cache instance, compatible with v14 and v15+.

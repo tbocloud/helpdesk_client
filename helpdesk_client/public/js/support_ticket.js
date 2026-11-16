@@ -258,6 +258,9 @@ genie.SupportTicket = class SupportTicket {
 		if (this.inUpload) return;
 
 		this.inUpload = true;
+		// one id for this ticket, the same when Raise is pressed again after an error: the site then
+		// returns the ticket it raised already instead of a second one
+		this.request_id = this.request_id || genie.new_message_id();
 		let screen_recording = null;
 		if (genie.blob) {
 			frappe.show_alert({
@@ -265,9 +268,14 @@ genie.SupportTicket = class SupportTicket {
 				message: __("Raising ticket. Please wait..."),
 			});
 			const ext = genie.blob.type.startsWith("video/mp4") ? "mp4" : "webm";
-			screen_recording = await genie
-				.UploadFile(genie.blob, `screen-rec-${Date.now()}.${ext}`)
-				.catch(() => null);
+			// uploaded once: a retry sends the same file again
+			if (!this.uploaded_recording || this.uploaded_recording.blob !== genie.blob) {
+				const url = await genie
+					.UploadFile(genie.blob, `screen-rec-${Date.now()}.${ext}`)
+					.catch(() => null);
+				this.uploaded_recording = url ? { blob: genie.blob, url } : null;
+			}
+			screen_recording = this.uploaded_recording && this.uploaded_recording.url;
 			if (!screen_recording) {
 				frappe.show_alert({
 					indicator: "red",
@@ -280,7 +288,9 @@ genie.SupportTicket = class SupportTicket {
 
 		const screenshot_urls = [];
 		for (const shot of this.screenshots) {
-			const url = await genie.UploadFile(shot.blob, shot.name).catch(() => null);
+			shot.url =
+				shot.url || (await genie.UploadFile(shot.blob, shot.name).catch(() => null));
+			const url = shot.url;
 			if (!url) {
 				frappe.show_alert({
 					indicator: "red",
@@ -310,6 +320,7 @@ genie.SupportTicket = class SupportTicket {
 				page_route: this.context.page_route,
 				ref_doctype: this.context.ref_doctype,
 				ref_docname: this.context.ref_docname,
+				client_message_id: this.request_id,
 			},
 			freeze: true,
 			freeze_message: __("Creating ticket..."),

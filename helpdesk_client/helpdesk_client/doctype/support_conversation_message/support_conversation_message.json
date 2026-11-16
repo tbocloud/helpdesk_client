@@ -12,7 +12,8 @@
   "text",
   "card",
   "files",
-  "hub_ref"
+  "hub_ref",
+  "client_message_id"
  ],
  "fields": [
   {
@@ -63,12 +64,21 @@
    "fieldtype": "Data",
    "label": "TBO Support Reference",
    "read_only": 1
+  },
+  {
+   "description": "The browser's id for this message, the same when it is sent again after a failure: it is passed on to TBO Support once.",
+   "fieldname": "client_message_id",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Client Message ID",
+   "no_copy": 1,
+   "read_only": 1
   }
  ],
  "in_create": 1,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-28 14:00:00.000000",
+ "modified": "2026-11-16 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Helpdesk Client",
  "name": "Support Conversation Message",

@@ -19,9 +19,10 @@ import time
 import frappe
 import requests
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.utils import now_datetime, strip_html
 
 from helpdesk_client import inbox
+from helpdesk_client.utils import message_id
 from helpdesk_client.utils.context import raiser_identity, ticket_context
 
 CONVERSATION, MESSAGE = "Support Conversation", "Support Conversation Message"
@@ -83,13 +84,43 @@ def _relay(payload: dict) -> dict:
 			timeout=RELAY_TIMEOUT,
 		)
 	except requests.RequestException as e:
-		raise ChatUnavailable(_("TBO Support could not be reached; please use the form.")) from e
+		raise ChatUnavailable(_("TBO Support could not be reached. Try again in a moment.")) from e
 	if response.status_code != 200:
-		raise ChatUnavailable(_("TBO Support could not take the message; please use the form."))
+		raise ChatUnavailable(
+			_hub_message(response) or _("TBO Support could not take the message. Try again in a moment.")
+		)
 	try:
-		return response.json()
+		reply = response.json()
 	except ValueError as e:
 		raise ChatUnavailable(_("TBO Support's answer could not be read.")) from e
+	reason = not_taken(reply)
+	if reason:
+		raise ChatUnavailable(reason)
+	return reply
+
+
+def not_taken(reply) -> str:
+	"""Why TBO Support did not take a message, or "" when it did.
+
+	It answers `enabled: false` while its chat is switched off and `ok: false` when it refuses; either way nothing
+	reached anyone there, so the user must not see the message as sent. Its own `message` says why, when it gives one.
+	"""
+	if not isinstance(reply, dict):
+		return _("TBO Support's answer could not be read.")
+	if ("enabled" in reply and not reply["enabled"]) or ("ok" in reply and not reply["ok"]):
+		reason = strip_html(str(reply.get("message") or "")).strip()[:500]
+		return reason or _("TBO Support's chat is switched off just now, so this was not sent.")
+	return ""
+
+
+def _hub_message(response) -> str:
+	"""The reason a refusal from TBO Support gives (Frappe's message), when it gives one a person can read."""
+	try:
+		data = response.json()
+		first = json.loads(json.loads(data.get("_server_messages") or "[]")[0])
+		return strip_html(str(first.get("message") or "")).strip()[:500]
+	except (ValueError, IndexError, TypeError, AttributeError):
+		return ""
 
 
 def _user() -> dict:
@@ -233,18 +264,21 @@ def start(
 	}
 	if shown_error:
 		sent.update(shown_error=shown_error, error_action=error_action)
-	reply = _relay(
-		{
-			"action": "start",
-			"client_conversation": doc.name,
-			"user": _user(),
-			"text": first,
-			"context": sent,
-		}
-	)
-	if not reply.get("enabled"):
+	try:
+		reply = _relay(
+			{
+				"action": "start",
+				"client_conversation": doc.name,
+				"user": _user(),
+				"text": first,
+				"context": sent,
+			}
+		)
+		if not reply.get("enabled"):
+			raise ChatUnavailable(_("The support chat is not available; please use the form."))
+	except ChatUnavailable:
 		frappe.delete_doc(CONVERSATION, doc.name, ignore_permissions=True, force=True)
-		raise ChatUnavailable(_("The support chat is not available; please use the form."))
+		raise
 	_keep(doc, reply)
 	return history(doc.name)
 
@@ -366,9 +400,19 @@ def _read_only(t) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def send(
-	conversation: str, text: str = "", action: str = "", files: str | list | None = None, note: str = ""
+	conversation: str,
+	text: str = "",
+	action: str = "",
+	files: str | list | None = None,
+	note: str = "",
+	client_message_id: str = "",
 ) -> dict:
-	"""The user's message or button press: it goes to TBO Support, and its answer comes back."""
+	"""The user's message or button press: it goes to TBO Support, and its answer comes back.
+
+	Nothing is kept here unless TBO Support took it. When it did not (unreachable, its chat switched off, a
+	refusal), the answer has `ok` false and the reason, and the browser keeps the text for another try.
+	`client_message_id` is the browser's id for this message, the same on a retry: a message this site has passed
+	on already is not passed on again, and TBO Support takes each id once, so a retry never makes a duplicate."""
 	_require_chat()
 	doc = _mine(conversation)
 	if doc.ticket and action in ("fixed", "still_broken"):
@@ -377,10 +421,19 @@ def send(
 		frappe.throw(
 			_("This ticket is closed. Press It came back if the problem is back, or start a new chat.")
 		)
+	sent_as = message_id(client_message_id)
+	earlier = sent_as and frappe.db.get_value(
+		MESSAGE, {"conversation": doc.name, "client_message_id": sent_as}, ["name", "creation"], as_dict=True
+	)
+	if earlier:
+		# it went through before and only the answer was lost on the way back: what came after it
+		return _result(doc, _since(doc, earlier.creation), duplicate=True)
 	text = (text or "").strip()[:MAX_TEXT]
 	files = _own_files(files)
+	mine = None
 	if text or files:
-		frappe.get_doc(
+		# kept before the relay, so it comes before TBO Support's answer; taken out again if it did not go
+		mine = frappe.get_doc(
 			{
 				"doctype": MESSAGE,
 				"conversation": doc.name,
@@ -388,24 +441,50 @@ def send(
 				"kind": "Text",
 				"text": text,
 				"files": json.dumps(files) if files else None,
+				"client_message_id": sent_as,
 			}
 		).insert(ignore_permissions=True)
-	reply = _relay(
-		{
-			"conversation": doc.hub_conversation,
-			"client_conversation": doc.name,
-			"user": _user(),
-			"text": text,
-			"action": action,
-			"note": (note or "").strip()[:1000],
-			"files": files,
-		}
-	)
+	try:
+		reply = _relay(
+			{
+				"conversation": doc.hub_conversation,
+				"client_conversation": doc.name,
+				"client_message_id": sent_as,
+				# the site's ticket, so TBO Support can link a chat whose one "linked" call failed
+				"client_ticket": doc.ticket or None,
+				"user": _user(),
+				"text": text,
+				"action": action,
+				"note": (note or "").strip()[:1000],
+				"files": files,
+			}
+		)
+	except ChatUnavailable as e:
+		if mine:
+			frappe.db.delete(MESSAGE, {"name": mine.name})  # it never went: no trace, not even a deleted one
+		return {**_result(doc, []), "ok": False, "error": str(e)}
 	kept = _keep(doc, reply)
 	doc.reload()
 	if reply.get("ticket") and not doc.ticket:
 		_ticket_for(doc, reply)
-	return {"conversation": doc.name, "status": doc.status, "ticket": doc.ticket, "messages": kept}
+	return _result(doc, kept)
+
+
+def _result(doc, messages: list[dict], duplicate: bool = False) -> dict:
+	result = {"ok": True, "conversation": doc.name, "status": doc.status, "ticket": doc.ticket}
+	if duplicate:
+		result["duplicate"] = True
+	return {**result, "messages": messages}
+
+
+def _since(doc, creation) -> list[dict]:
+	rows = frappe.get_all(
+		MESSAGE,
+		filters={"conversation": doc.name, "creation": [">", creation], "direction": ["!=", "Customer"]},
+		fields=["name", "direction", "kind", "text", "card", "files", "creation"],
+		order_by="creation asc",
+	)
+	return [_as_dict(frappe._dict(r)) for r in rows]
 
 
 def _answer_the_fix(doc, fixed: bool, note: str) -> dict:
@@ -424,7 +503,7 @@ def _answer_the_fix(doc, fixed: bool, note: str) -> dict:
 		text = _("Thank you. The ticket is open again, and a person from our team is on it.")
 	kept.append(_as_dict(_add(doc, {"direction": "System", "kind": "Text", "text": text})))
 	doc.db_set("last_message_at", now_datetime(), update_modified=False)
-	return {"conversation": doc.name, "status": doc.status, "ticket": doc.ticket, "messages": kept}
+	return _result(doc, kept)
 
 
 def _own_files(files) -> list[dict]:
@@ -439,6 +518,16 @@ def _own_files(files) -> list[dict]:
 		if row and row.owner == frappe.session.user and row.is_private:
 			own.append({"file_url": url, "file_name": row.file_name, "file": row.name})
 	return own
+
+
+def _first_line(doc) -> str:
+	text = frappe.db.get_value(
+		MESSAGE,
+		{"conversation": doc.name, "direction": "Customer", "text": ["is", "set"]},
+		"text",
+		order_by="creation asc",
+	)
+	return inbox.summary(text)
 
 
 def _ticket_for(doc, reply: dict):
@@ -462,7 +551,8 @@ def _ticket_for(doc, reply: dict):
 	ticket = frappe.get_doc(
 		{
 			"doctype": "Support Ticket",
-			"subject": (fields.get("title") or _("Support request"))[:140],
+			# without a title from TBO Support, the user's own first line, so their tickets don't all look alike
+			"subject": (fields.get("title") or _first_line(doc) or _("Support request"))[:140],
 			"description": description or _("Raised from the support chat."),
 			# raised already: the hub's pull must not import it again
 			"status": "Open",

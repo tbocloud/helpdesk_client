@@ -235,6 +235,19 @@ class TestTheFixInTheChat(ChatCase):
 		self.assertEqual(sent["messages"][0]["text"], "It is empty again today")
 		self.assertEqual(inbox.state(self.ticket)["dot"], inbox.ORANGE)
 
+	def test_it_came_back_works_after_asking_to_close(self):
+		from helpdesk_client.helpdesk_client.doctype.support_ticket import support_ticket
+
+		self.ticket.db_set("status", "Open")
+		support_ticket.request_close(self.ticket.name)
+		self.ticket.reload()
+		self.assertTrue(inbox.state(self.ticket)["closed"])
+
+		chat.send(self.chat.name, action="still_broken", note="It is back")
+
+		self.ticket.reload()
+		self.assertEqual((self.ticket.customer_confirmation, self.ticket.close_requested), ("Reopened", 0))
+
 
 class TestTheNotices(ChatCase):
 	def notices(self, t):
