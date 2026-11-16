@@ -13,7 +13,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import get_datetime, now_datetime, strip_html
+from frappe.utils import add_days, get_datetime, now_datetime, strip_html
 
 from helpdesk_client import __version__
 from helpdesk_client.api import _require_support_user
@@ -41,6 +41,21 @@ WRITABLE_FIELDS = (
 	"deployed_at",
 )
 MAX_CHANGES = 500
+CHANGE_FIELDS = [
+	"name",
+	"ticket_id",
+	"status",
+	"stage",
+	"close_requested",
+	"customer_confirmation",
+	"confirmation_note",
+	"confirmed_at",
+	"reopen_requested",
+	"reopen_count",
+	"modified",
+]
+# how long a customer's answer is offered again while TBO Support has not acted on it
+ANSWERS_KEPT_DAYS = 14
 
 
 def capabilities_info() -> dict:
@@ -196,32 +211,53 @@ def post_reply(name: str, hub_ref: str, content: str, author_name: str = "TBO Su
 @frappe.whitelist(methods=["POST"])
 def get_ticket_changes(since: str, limit: int = 200) -> dict:
 	"""Tickets changed here since `since` (confirmations, reopens, close requests), oldest first,
-	and `server_time` to pass as the next `since`."""
+	and `server_time` to pass as the next `since`.
+
+	A customer's answer (Confirmed or Reopened) comes back in every call until TBO Support has acted on it
+	(it moved the ticket's status, or sent Resolved again), whatever `since` says: a hub that failed once to
+	apply "Still broken" and moved its cursor on still gets it next time. The hub applies each answer once (by
+	its `confirmed_at`), so seeing it again is harmless. When more tickets changed than `limit`,
+	`server_time` is the last one's `modified`, so the next call goes on from there instead of skipping the
+	rest."""
 	_require_support_user()
 	since_dt = get_datetime(since) if since else None
 	if not since_dt:
 		frappe.throw(_("since must be a datetime"))
 	server_time = now_datetime()
+	limit = max(1, min(int(limit or MAX_CHANGES), MAX_CHANGES))
 	tickets = frappe.get_all(
 		"Support Ticket",
 		filters={"modified": [">", since_dt]},
-		fields=[
-			"name",
-			"ticket_id",
-			"status",
-			"stage",
-			"close_requested",
-			"customer_confirmation",
-			"confirmation_note",
-			"confirmed_at",
-			"reopen_requested",
-			"reopen_count",
-			"modified",
-		],
+		fields=CHANGE_FIELDS,
 		order_by="modified asc",
-		limit=max(1, min(int(limit or MAX_CHANGES), MAX_CHANGES)),
+		limit=limit,
 	)
+	if len(tickets) == limit:
+		server_time = tickets[-1].modified
+	listed = {t.name for t in tickets}
+	tickets += [t for t in _answers_not_acted_on() if t.name not in listed]
 	return {"server_time": str(server_time), "tickets": tickets}
+
+
+def _answers_not_acted_on() -> list:
+	"""The customers' answers of the last weeks that TBO Support has not acted on yet."""
+	from helpdesk_client import inbox
+
+	rows = frappe.get_all(
+		"Support Ticket",
+		filters={
+			"customer_confirmation": ["in", ["Confirmed", "Reopened"]],
+			"confirmed_at": [">=", add_days(now_datetime(), -ANSWERS_KEPT_DAYS)],
+		},
+		fields=[*CHANGE_FIELDS, "last_synced"],
+		order_by="confirmed_at asc",
+		limit=MAX_CHANGES,
+	)
+	return [
+		frappe._dict({k: v for k, v in row.items() if k != "last_synced"})
+		for row in rows
+		if inbox.answered(row)
+	]
 
 
 def _parse(value, what: str) -> dict:

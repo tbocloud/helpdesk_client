@@ -56,17 +56,18 @@ def summary(text: str | None) -> str:
 	return line if len(line) <= SUMMARY_CHARS else line[: SUMMARY_CHARS - 1].rstrip() + "…"
 
 
-def _answered_since_last_change(t) -> bool:
-	"""The user's confirm or reopen came after TBO Support last moved the ticket's status."""
-	if not t.confirmed_at:
+def answered(t) -> bool:
+	"""The user's confirm or reopen came after TBO Support last moved the ticket (its status, or a new
+	Resolved): TBO Support has not acted on it yet."""
+	if not t.get("confirmed_at"):
 		return False
-	return not t.last_synced or get_datetime(t.confirmed_at) >= get_datetime(t.last_synced)
+	return not t.get("last_synced") or get_datetime(t.confirmed_at) >= get_datetime(t.last_synced)
 
 
 def state(ticket) -> dict:
 	"""The ticket's dot, what it means, and what the user must do (only when red)."""
 	t = _plain(ticket)
-	fresh = _answered_since_last_change(t)
+	fresh = answered(t)
 	if fresh and t.customer_confirmation == "Reopened":
 		return _state(ORANGE, _("You reopened it: a person from TBO Support is on it"))
 	if fresh and t.customer_confirmation == "Confirmed":

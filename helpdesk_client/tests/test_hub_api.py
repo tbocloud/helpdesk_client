@@ -168,7 +168,49 @@ class TestChanges(HubApiCase):
 		row = next(t for t in result["tickets"] if t["name"] == changed.name)
 		self.assertEqual((row["customer_confirmation"], row["reopen_requested"]), ("Reopened", 1))
 		self.assertTrue(result["server_time"])
-		self.assertEqual(hub_api.get_ticket_changes(result["server_time"])["tickets"], [])
+		later = [t["name"] for t in hub_api.get_ticket_changes(result["server_time"])["tickets"]]
+		self.assertNotIn(changed.name, later)
+
+	def test_an_answer_comes_back_until_tbo_support_acts_on_it(self):
+		"""Phase 23 B5: a hub that failed once to apply Still broken, and moved its cursor on, still gets it."""
+		from helpdesk_client.helpdesk_client.doctype.support_ticket import support_ticket
+
+		before = str(add_to_date(now_datetime(), seconds=-1))
+		# resolved by TBO Support a minute ago (as update_ticket leaves it)
+		self.ticket.db_set({"status": "Resolved", "last_synced": add_to_date(now_datetime(), minutes=-1)})
+		frappe.set_user(RAISER)
+		support_ticket.reopen(self.ticket.name, "The report is still empty")
+		frappe.set_user(self.support_user)
+
+		first = hub_api.get_ticket_changes(before)
+		self.assertIn(self.ticket.name, [t["name"] for t in first["tickets"]])
+		# the hub failed to apply it and moved its cursor on anyway: the answer is offered again
+		again = hub_api.get_ticket_changes(first["server_time"])
+		row = next((t for t in again["tickets"] if t["name"] == self.ticket.name), None)
+		self.assertIsNotNone(row, "the reopen was lost once the cursor moved past it")
+		self.assertEqual(
+			(row["customer_confirmation"], row["confirmation_note"]),
+			("Reopened", "The report is still empty"),
+		)
+		self.assertNotIn("last_synced", row)
+
+		# TBO Support acted on it (the ticket is open again): it is not offered any more
+		with patch(
+			"helpdesk_client.helpdesk_client.doctype.support_ticket.support_ticket.notify_status_change"
+		):
+			hub_api.update_ticket(self.ticket.name, {"status": "Open"})
+		after = hub_api.get_ticket_changes(str(now_datetime()))
+		self.assertNotIn(self.ticket.name, [t["name"] for t in after["tickets"]])
+
+	def test_more_changes_than_the_limit_go_on_from_the_last_one(self):
+		cursor = str(add_to_date(now_datetime(), seconds=-1))
+		made = [make_ticket(subject=f"Batch {i}").name for i in range(3)]
+		page = hub_api.get_ticket_changes(cursor, limit=2)
+		mine = [t["name"] for t in page["tickets"] if t["name"] in made]
+		self.assertEqual(len(page["tickets"]), 2)
+		rest = hub_api.get_ticket_changes(page["server_time"], limit=2)
+		mine += [t["name"] for t in rest["tickets"] if t["name"] in made]
+		self.assertEqual(sorted(mine), sorted(made))
 
 	def test_a_bad_cursor_is_refused(self):
 		with self.assertRaises(frappe.ValidationError):
