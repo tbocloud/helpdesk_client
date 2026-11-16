@@ -46,7 +46,7 @@ With the chat on, the round Support button opens the **Support panel** (`public/
   - 🔴 TBO Support waits for the user: a fix to check (Resolved), or an answer (Replied, Waiting on Customer, or the stage Waiting for you);
   - 🟠 the team is working on it.
 
-  A confirm or reopen counts only until TBO Support changes the ticket's status again (`last_synced`), so a ticket fixed a second time asks again.
+  A confirm or reopen counts only until TBO Support changes the ticket's status again or sends Resolved again (`last_synced`), so a ticket fixed a second time asks again, in the chat and on the ticket's form (its **Confirm, it's fixed** and **Still broken, reopen** buttons follow `inbox.state`, worked out when the form loads). A Resolved that comes right after the user confirmed does not ask again.
 - **A red button** above the Support button shows **Actions needed · n** while tickets wait for the user. Its count comes from boot and is refreshed live.
 - **A new chat** first asks "Is this a new problem, or about one of your open tickets?" and lists them.
 - **A ticket raised with the form** gets its chat the first time it is opened (`chat.open_ticket`). Its text and TBO Support's updates come first, then TBO Support links a chat to the ticket (hub action `open_ticket`). Before TBO Support has picked the ticket up, or with an older hub, its story shows read-only.

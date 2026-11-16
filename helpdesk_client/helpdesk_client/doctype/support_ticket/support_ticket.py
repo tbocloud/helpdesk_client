@@ -18,6 +18,19 @@ RESOLVED_STATUSES = ("Resolved", "Closed")
 
 
 class SupportTicket(Document):
+	def onload(self):
+		"""What the form asks (Phase 23 B7): Confirm and Still broken after every Resolved, as the chat does,
+		for the one who raised it; and whether their last answer still stands."""
+		now = inbox.state(self)
+		self.set_onload(
+			"genie",
+			{
+				"confirm": bool(now["confirm"] and _may_answer(self)),
+				"answered": inbox.answered(self),
+				"closed": now["closed"],
+			},
+		)
+
 	def on_update(self):
 		"""Notify the reporter when the status or the stage changes.
 
@@ -88,8 +101,12 @@ def has_permission(doc, ptype=None, user=None):
 	return (ptype or "read") in ("read", "print") and is_follower(doc, user)
 
 
+def _may_answer(doc) -> bool:
+	return is_raiser(doc) or "System Manager" in frappe.get_roles()
+
+
 def _require_raiser(doc):
-	if not is_raiser(doc) and "System Manager" not in frappe.get_roles():
+	if not _may_answer(doc):
 		frappe.throw(_("Only the person who raised the ticket can do this."), frappe.PermissionError)
 
 

@@ -49,6 +49,8 @@ const genie_ticket = {
 		} else if (frm.doc.status === "Pending") {
 			frm.dashboard.set_headline(__("Submitted — support will pick this up shortly."));
 		}
+		// only an answer to the latest Resolved still stands: an older one was about an earlier fix
+		if (!this.state(frm).answered) return;
 		if (frm.doc.customer_confirmation === "Confirmed") {
 			frm.dashboard.add_comment(
 				__("You confirmed this is fixed. Thank you."),
@@ -96,10 +98,14 @@ const genie_ticket = {
 		);
 	},
 
+	// The ticket's state as the chat sees it (Phase 23): the server works it out on load.
+	state(frm) {
+		return (frm.doc.__onload && frm.doc.__onload.genie) || {};
+	},
+
 	add_buttons(frm) {
-		const resolved =
-			frm.doc.stage === "Resolved" || ["Resolved", "Closed"].includes(frm.doc.status);
-		if (resolved && !frm.doc.customer_confirmation) {
+		// "Is it fixed?" after every Resolved, not once per ticket: a second fix asks again
+		if (this.state(frm).confirm) {
 			frm.add_custom_button(__("Confirm, it's fixed"), () =>
 				this.call(
 					frm,

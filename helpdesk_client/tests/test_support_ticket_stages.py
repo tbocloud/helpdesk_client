@@ -112,6 +112,59 @@ class TestConfirmAndReopen(StageCase):
 		self.assertEqual(frappe.db.get_value("Support Ticket", doc.name, "close_requested"), 1)
 
 
+class TestAskedAgainAfterEveryResolved(StageCase):
+	"""Phase 23 B7: a second fix asks "Is it fixed?" again, on the form as in the chat."""
+
+	def form(self, doc, user):
+		frappe.set_user(user)
+		try:
+			doc = frappe.get_doc("Support Ticket", doc.name)
+			doc.run_method("onload")
+			return doc.get_onload().get("genie") or {}
+		finally:
+			frappe.set_user("Administrator")
+
+	def hub_sends(self, doc, hub_ref, stage):
+		from helpdesk_client import hub_api
+		from helpdesk_client.support_user import get_support_user
+		from helpdesk_client.tests.test_hub_api import ensure_user
+
+		frappe.set_user(ensure_user(get_support_user(), roles=("System Manager",)))
+		try:
+			# the notice is not what this is about
+			with patch.object(api, "notify_action_needed"), patch.object(api, "notify_stage_change"):
+				hub_api.add_update(doc.name, hub_ref, stage, f"{stage} message")
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_a_second_fix_asks_again_on_the_form(self):
+		doc = make_ticket(ticket_id="0042", status="Resolved", stage="Resolved")
+		self.assertTrue(self.form(doc, RAISER)["confirm"])
+		self.assertFalse(self.form(doc, STRANGER).get("confirm"))
+
+		frappe.set_user(RAISER)
+		api.reopen(doc.name, "The total is still wrong")
+		self.assertFalse(self.form(doc, RAISER)["confirm"])
+		self.assertTrue(self.form(doc, RAISER)["answered"])
+
+		# the second fix arrives as a Resolved stage; TBO Support's status never left Resolved
+		self.hub_sends(doc, "TBO-RUN-1:Resolved:2", "Resolved")
+		again = self.form(doc, RAISER)
+		self.assertTrue(again["confirm"], "the second fix did not ask again")
+		self.assertFalse(again["answered"])
+
+		frappe.set_user(RAISER)
+		self.assertEqual(api.confirm_resolution(doc.name)["confirmation"], "Confirmed")
+		self.assertFalse(self.form(doc, RAISER)["confirm"])
+
+	def test_a_late_resolved_does_not_undo_a_fresh_confirmation(self):
+		doc = make_ticket(ticket_id="0043", status="Resolved", stage="Working on it")
+		frappe.set_user(RAISER)
+		api.confirm_resolution(doc.name, "Works")
+		self.hub_sends(doc, "TBO-RUN-2:Resolved:1", "Resolved")
+		self.assertFalse(self.form(doc, RAISER)["confirm"])
+
+
 class TestNotifications(StageCase):
 	def test_a_new_stage_notifies_the_raiser(self):
 		doc = make_ticket(ticket_id="0042")

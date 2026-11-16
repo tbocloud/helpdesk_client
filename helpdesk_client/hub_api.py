@@ -172,11 +172,24 @@ def add_update(
 		return {"ok": True, "duplicate": True}
 	doc.append("updates", _row(hub_ref, kind, stage, message, author_name))
 	if kind == "Stage":
+		if stage == "Resolved" and _asks_again(doc):
+			# a new fix: "Is it fixed?" again, even when the status did not move (an answer given before
+			# this was about the earlier fix), and its reminders start over
+			doc.last_synced = now_datetime()
+			doc.confirmation_reminded_at = None
 		doc.stage = stage
 		doc.stage_message = (message or "")[:2000]
 	doc.flags.from_hub = True
 	doc.save(ignore_permissions=True)
 	return {"ok": True, "duplicate": False}
+
+
+def _asks_again(doc) -> bool:
+	"""Every Resolved asks again whether it is fixed (Phase 23 B7), unless the user has just confirmed it:
+	a confirmation after TBO Support's last move is about this very fix."""
+	from helpdesk_client import inbox
+
+	return not (doc.customer_confirmation == "Confirmed" and inbox.answered(doc))
 
 
 @frappe.whitelist(methods=["POST"])
