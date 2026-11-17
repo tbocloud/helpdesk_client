@@ -92,11 +92,23 @@ genie.SupportTicket = class SupportTicket {
 					label: __("Description"),
 					fieldtype: "Text Editor",
 					reqd: 1,
+					// what goes with the ticket besides what is typed (Phase 23 B14)
+					description: __(
+						"With the ticket TBO Support gets the page you are on, your roles, your error messages of the last day and this site's app versions."
+					),
 				},
 				...this.replay_fields(),
 				{
 					fieldtype: "Section Break",
 					label: __("Screen Recording"),
+				},
+				{
+					// the voice only when chosen, and what is shared and who can watch it, said first (Phase 23 B11)
+					fieldname: "record_voice",
+					label: __("Also record my voice (microphone)"),
+					fieldtype: "Check",
+					default: 0,
+					description: genie.recording_note(),
 				},
 				{
 					fieldname: "record_screen",
@@ -650,7 +662,8 @@ genie.SupportTicket = class SupportTicket {
 			console.error(err);
 			return;
 		}
-		// The microphone is optional: without one the screen is still recorded.
+		// The voice only when the user ticked it; without a microphone the screen is still recorded.
+		if (!this.dialog.get_value("record_voice")) return;
 		try {
 			this.audio = await navigator.mediaDevices.getUserMedia({
 				audio: {

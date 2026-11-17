@@ -82,10 +82,11 @@ def state(ticket) -> dict:
 	if t.close_requested:
 		return _state(GREEN, _("Closing: you asked to close it"), closed=True)
 	if t.status == "Resolved" or t.stage == "Resolved":
+		# a fix, or an answer to a question: the words fit both (Phase 23 B10)
 		return _state(
 			RED,
-			_("Fixed: please check it and confirm it works"),
-			_("Check the fix and confirm it works"),
+			_("Resolved by TBO Support: please check it"),
+			_("Check it and confirm it is sorted"),
 			confirm=True,
 		)
 	if t.stage == "Waiting for you" or t.status == "Replied" or t.status_label in WAITING_LABELS:
@@ -330,9 +331,9 @@ def remind_unconfirmed() -> int:
 					"doctype": "Notification Log",
 					"for_user": user,
 					"type": "Alert",
-					"subject": _("Please check the fix on {0} and confirm it works: {1}").format(
-						t.name, summary(t.subject)
-					),
+					"subject": _(
+						"TBO Support resolved {0}. Please check it and confirm it is sorted: {1}"
+					).format(t.name, summary(t.subject)),
 					"document_type": TICKET,
 					"document_name": t.name,
 					"link": chat_route(t.name),

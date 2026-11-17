@@ -285,7 +285,7 @@ genie.SupportChatView = class SupportChatView {
 		this.body.innerHTML = "";
 		this.shown.clear();
 		this.head.hidden = this.status.hidden = this.foot.hidden = this.closed.hidden = true;
-		this.typing(true);
+		this.typing(true, __("Loading…"));
 	}
 
 	async open_ticket(name) {
@@ -362,6 +362,7 @@ genie.SupportChatView = class SupportChatView {
 		this.ticket = r.ticket_state || null;
 		this.body.innerHTML = "";
 		this.shown.clear();
+		if (!this.ticket && r.conversation) this.body.appendChild(this.automated_note());
 		(r.messages || []).forEach((m) => this.append(m));
 		if (r.note) this.append({ direction: "System", kind: "Text", text: r.note });
 		this.render_head();
@@ -464,6 +465,17 @@ genie.SupportChatView = class SupportChatView {
 		);
 	}
 
+	// Who answers, and what goes with each message (Phase 23 B14): said once, above the chat.
+	automated_note() {
+		const note = document.createElement("div");
+		note.className = "text-muted";
+		note.style.cssText = "font-size:12px;padding:0 2px 4px";
+		note.textContent = __(
+			"You are chatting with TBO Copilot, an automated assistant; a person from TBO Support takes over when needed. With your messages TBO Support gets the page you are on, your roles, your error messages of the last day and this site's app versions."
+		);
+		return note;
+	}
+
 	button(label, style, onclick) {
 		const b = document.createElement("button");
 		b.type = "button";
@@ -485,13 +497,19 @@ genie.SupportChatView = class SupportChatView {
 		this.body.appendChild(div);
 	}
 
-	typing(on) {
+	// The line under the chat while something is on its way; `label` replaces the usual words.
+	typing(on, label) {
 		let dot = this.body.querySelector(".genie-chat-typing");
 		if (on && !dot) {
 			dot = document.createElement("div");
 			dot.className = "genie-chat-typing text-muted";
 			dot.style.fontSize = "12px";
-			dot.textContent = __("TBO Support is writing…");
+			// a ticket's chat goes to people; before that the assistant answers, and says it is one
+			dot.textContent =
+				label ||
+				(this.ticket
+					? __("Sending to TBO Support…")
+					: __("TBO Copilot, an automated assistant, is writing…"));
 			this.body.appendChild(dot);
 		} else if (!on && dot) {
 			dot.remove();
@@ -747,7 +765,7 @@ genie.SupportChatView = class SupportChatView {
 		let files = [];
 		if (this.tray.length) {
 			this.busy = true;
-			this.typing(true);
+			this.typing(true, __("Uploading…"));
 			files = await this.upload_tray();
 			this.busy = false;
 			this.typing(false);
@@ -994,13 +1012,22 @@ genie.SupportChatView = class SupportChatView {
 		});
 	}
 
-	// True when a recording started (or one was stopped); false when the user said no in the browser's prompt.
+	// True when a recording started (or one was stopped); false when the user cancelled or said no in the
+	// browser's prompt. What is shared and who can watch it is said first, and the voice is off unless chosen.
 	async record() {
 		if (genie.screen_recorder.recording()) {
 			genie.screen_recorder.stop();
 			return true;
 		}
-		return genie.screen_recorder.start((file) => this.recorded(file));
+		if (!genie.can_record_screen()) {
+			frappe.msgprint(
+				__("This browser cannot record the screen; you can attach a screenshot instead.")
+			);
+			return false;
+		}
+		const choice = await genie.recording_choice();
+		if (!choice) return false;
+		return genie.screen_recorder.start((file) => this.recorded(file), choice);
 	}
 
 	recorded(file) {
@@ -1040,6 +1067,7 @@ genie.SupportChatView = class SupportChatView {
 		this.pending = { record };
 		this.render_about();
 		this.foot.hidden = false;
+		this.body.appendChild(this.automated_note());
 		const hint = document.createElement("div");
 		hint.className = "genie-sc-empty";
 		hint.textContent =

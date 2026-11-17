@@ -33,6 +33,43 @@ genie.can_record_screen = function () {
 	);
 };
 
+// What a recording is and who can watch it (Phase 23 B11), said before it starts, in the chat and the form.
+genie.recording_note = function () {
+	return __(
+		"You choose in your browser's prompt what to share: this tab, a window or your whole screen. The recording is attached privately to your ticket: TBO Support's team can watch it, and so can people on this site who can open the ticket (colleagues who follow it, and your System Managers). Your voice is recorded only if you choose it."
+	);
+};
+
+// Before a recording from the chat: the note, and the voice (off unless chosen). {voice} or null when cancelled.
+genie.recording_choice = function () {
+	return new Promise((resolve) => {
+		let chosen = null;
+		const d = new frappe.ui.Dialog({
+			title: __("Record your screen"),
+			fields: [
+				{ fieldtype: "HTML", fieldname: "note" },
+				{
+					fieldtype: "Check",
+					fieldname: "voice",
+					label: __("Also record my voice (microphone)"),
+					default: 0,
+				},
+			],
+			primary_action_label: __("Start recording"),
+			primary_action: (values) => {
+				chosen = { voice: !!values.voice };
+				d.hide();
+			},
+		});
+		const p = document.createElement("p");
+		p.className = "text-muted";
+		p.textContent = genie.recording_note();
+		d.fields_dict.note.$wrapper.empty().append(p);
+		d.onhide = () => resolve(chosen);
+		d.show();
+	});
+};
+
 genie.format_seconds = function (seconds) {
 	const s = Math.max(0, Math.floor(seconds || 0));
 	return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -93,9 +130,10 @@ genie.screen_recorder = {
 		return Math.min(setting, site);
 	},
 
-	// on_done({blob, name, kind, size, seconds}) once the user stops (not when they discard).
-	// True when the recording started; false when it could not (no screen capture, or the user said no).
-	async start(on_done) {
+	// on_done({blob, name, kind, size, seconds}) once the user stops (not when they discard); the voice only
+	// with {voice: true}. True when the recording started; false when it could not (no screen capture, or the
+	// user said no).
+	async start(on_done, { voice: with_voice = false } = {}) {
 		if (this.session) return false;
 		if (!genie.can_record_screen()) {
 			frappe.msgprint(
@@ -109,21 +147,32 @@ genie.screen_recorder = {
 		} catch (e) {
 			return false; // the user said no in the browser's own prompt
 		}
-		// the voice is optional, as in the form: without a microphone the screen is still recorded
+		// the voice only when the user chose it; without a microphone the screen is still recorded
 		let voice = null;
-		try {
-			voice = await navigator.mediaDevices.getUserMedia({
-				audio: { echoCancellation: true, noiseSuppression: true },
-			});
-		} catch (e) {
-			voice = null;
+		if (with_voice) {
+			try {
+				voice = await navigator.mediaDevices.getUserMedia({
+					audio: { echoCancellation: true, noiseSuppression: true },
+				});
+			} catch (e) {
+				voice = null;
+			}
 		}
 		const stream = new MediaStream([
 			...display.getVideoTracks(),
 			...(voice ? voice.getAudioTracks() : []),
 		]);
 		const recorder = genie.make_media_recorder(stream);
-		const s = { recorder, display, voice, chunks: [], size: 0, started: Date.now(), on_done };
+		const s = {
+			recorder,
+			display,
+			voice,
+			asked_voice: with_voice,
+			chunks: [],
+			size: 0,
+			started: Date.now(),
+			on_done,
+		};
 		this.session = s;
 		recorder.ondataavailable = (e) => {
 			if (!e.data || !e.data.size) return;
@@ -243,7 +292,10 @@ genie.screen_recorder = {
 		const voice = bar.querySelector(".genie-rb-voice");
 		const tracks = s.voice ? s.voice.getAudioTracks() : [];
 		if (!tracks.length) {
-			voice.textContent = __("No microphone");
+			// not chosen before the start, or no microphone: either way no voice in this recording
+			voice.textContent = s.asked_voice
+				? __("No microphone")
+				: "🔇 " + __("Voice not recorded");
 			voice.disabled = true;
 			voice.removeAttribute("aria-pressed");
 		} else {

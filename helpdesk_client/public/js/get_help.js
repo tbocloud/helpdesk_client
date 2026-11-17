@@ -128,9 +128,14 @@ genie.offer_error_help = function () {
 	);
 	const note = document.createElement("div");
 	note.className = "genie-error-note";
+	// all of what goes (Phase 23 B14), not only the message
 	note.textContent = ctx.ref_doctype
-		? __("TBO Support gets the record's name and this message, not the record's contents.")
-		: __("TBO Support gets this message and the page you are on.");
+		? __(
+				"TBO Support gets this message, the record's name (not its contents), the page you are on, your roles, your error messages of the last day and this site's app versions. Its automated assistant answers first."
+		  )
+		: __(
+				"TBO Support gets this message, the page you are on, your roles, your error messages of the last day and this site's app versions. Its automated assistant answers first."
+		  );
 	d.body.appendChild(note);
 	d.$wrapper.one("hidden.bs.modal", () =>
 		d.$wrapper.find(".genie-error-help, .genie-error-note").remove()

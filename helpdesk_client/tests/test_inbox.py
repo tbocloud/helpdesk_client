@@ -86,7 +86,7 @@ class TestTheInbox(ChatCase):
 			[(working.name, inbox.ORANGE), (waiting.name, inbox.RED), (closed.name, inbox.GREEN)],
 		)
 		self.assertEqual([t["name"] for t in data["actions"]], [waiting.name])
-		self.assertEqual(data["actions"][0]["action"], "Check the fix and confirm it works")
+		self.assertEqual(data["actions"][0]["action"], "Check it and confirm it is sorted")
 		self.assertEqual(data["tickets"][1]["summary"], "Invoice won't submit")
 
 	def test_chats_are_listed_by_their_first_line_and_a_ticket_chat_is_not_one_of_them(self):
@@ -268,7 +268,7 @@ class TestTheNotices(ChatCase):
 
 		new = self.notices(t)[before:]
 		self.assertEqual(len(new), 1)
-		self.assertEqual(new[0].subject, f"{t.name} needs you: Check the fix and confirm it works")
+		self.assertEqual(new[0].subject, f"{t.name} needs you: Check it and confirm it is sorted")
 		self.assertEqual(new[0].link, f"/app/support-chat/{t.name}")
 
 	def test_a_fix_waiting_for_the_check_is_brought_up_every_3_days(self):
@@ -284,7 +284,7 @@ class TestTheNotices(ChatCase):
 		inbox.remind_unconfirmed()  # the next day's run: too soon again
 
 		self.assertEqual(len(self.notices(waiting)), before + 1)
-		self.assertIn("Please check the fix", self.notices(waiting)[-1].subject)
+		self.assertIn("Please check it and confirm it is sorted", self.notices(waiting)[-1].subject)
 		self.assertEqual(self.notices(confirmed), [])
 
 	def test_the_red_button_counts_what_waits_for_the_user(self):
