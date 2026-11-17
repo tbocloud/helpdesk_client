@@ -11,8 +11,9 @@ closes only when the user confirms; until then a fix waiting for their check is 
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import add_days, formatdate, get_datetime, now_datetime
+from frappe.utils import add_days, add_to_date, formatdate, get_datetime, now_datetime
 
+from helpdesk_client.utils import site_connected
 from helpdesk_client.utils.context import refuse_hub_user
 
 TICKET, CONVERSATION, MESSAGE = "Support Ticket", "Support Conversation", "Support Conversation Message"
@@ -22,6 +23,8 @@ GREEN, RED, ORANGE = "green", "red", "orange"
 WAITING_LABELS = ("Replied", "Waiting on Customer")
 OPEN_CHAT_STATES = ("Talking", "Summary", "Before a person")
 REMIND_EVERY_DAYS = 3
+# a ticket TBO Support has not picked up this long after it was raised is reported to the site's admins
+PENDING_REPORT_AFTER_HOURS = 1
 SUMMARY_CHARS = 80
 TICKET_FIELDS = [
 	"name",
@@ -93,6 +96,8 @@ def state(ticket) -> dict:
 			_("Answer the team: {0}").format(summary(asked)) if asked else _("Answer the team's question"),
 		)
 	if t.status == "Pending":
+		if not site_connected():
+			return _state(ORANGE, _("Not sent: this site is not connected to TBO Support"))
 		return _state(ORANGE, _("Sent to TBO Support"))
 	return _state(ORANGE, _(t.stage) if t.stage else _("TBO Support is working on it"))
 
@@ -336,3 +341,72 @@ def remind_unconfirmed() -> int:
 			reminded += 1
 		frappe.db.set_value(TICKET, t.name, "confirmation_reminded_at", now_datetime(), update_modified=False)
 	return reminded
+
+
+def report_waiting_tickets() -> int:
+	"""Hourly: tickets still Pending an hour after they were raised (TBO Support has not picked them up) are
+	reported once each to this site's System Managers, the people who can connect the site or check its
+	connection."""
+	rows = frappe.get_all(
+		TICKET,
+		filters={
+			"status": "Pending",
+			"creation": ["<=", add_to_date(now_datetime(), hours=-PENDING_REPORT_AFTER_HOURS)],
+			"pending_reported_at": ["is", "not set"],
+		},
+		fields=["name", "subject"],
+		order_by="creation asc",
+		limit=100,
+	)
+	admins = site_admins()
+	if not (rows and admins):
+		return 0  # nobody to tell yet: the next run tries again
+	names = [r.name for r in rows]
+	listed = ", ".join(names[:5])
+	if len(names) > 5:
+		listed = _("{0} and {1} more").format(listed, len(names) - 5)
+	subject = (
+		_("A support ticket has waited over an hour for TBO Support: {0}").format(listed)
+		if len(names) == 1
+		else _("{0} support tickets have waited over an hour for TBO Support: {1}").format(len(names), listed)
+	)
+	reason = (
+		_(
+			"TBO Support has not picked them up. Check this site's connection in HDS Support Settings, or tell TBO Support."
+		)
+		if site_connected()
+		else _(
+			"This site is not connected to TBO Support, so they were not sent. Connect it in HDS Support Settings (Connect to TBO Support)."
+		)
+	)
+	tell(admins, subject, reason, "/app/support-ticket?status=Pending", names[0])
+	for name in names:
+		frappe.db.set_value(TICKET, name, "pending_reported_at", now_datetime(), update_modified=False)
+	return len(names)
+
+
+def site_admins() -> list[str]:
+	"""This site's own System Managers (Administrator too), never TBO Support's users."""
+	from frappe.utils.user import get_users_with_role
+
+	from helpdesk_client.mcp.auth import is_hub_user
+
+	users = ["Administrator", *get_users_with_role("System Manager")]
+	return [u for u in dict.fromkeys(users) if u == "Administrator" or not is_hub_user(u)]
+
+
+def tell(users: list[str], subject: str, message: str, link: str, ticket: str | None = None) -> None:
+	"""One desk notice to each of `users`."""
+	for user in users:
+		frappe.get_doc(
+			{
+				"doctype": "Notification Log",
+				"for_user": user,
+				"type": "Alert",
+				"subject": subject,
+				"email_content": message,
+				"document_type": TICKET if ticket else None,
+				"document_name": ticket,
+				"link": link,
+			}
+		).insert(ignore_permissions=True)

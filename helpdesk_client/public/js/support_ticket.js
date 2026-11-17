@@ -27,6 +27,17 @@ genie.SupportTicket = class SupportTicket {
 			frappe.msgprint(__("Ticket raising is not enabled for this site."));
 			return;
 		}
+		if (frappe.boot.genie_support_connected === false) {
+			// a ticket raised here would never reach anyone: say so before the user writes it
+			frappe.msgprint({
+				title: __("Not connected to TBO Support"),
+				indicator: "orange",
+				message: __(
+					"This site is not connected to TBO Support, so a ticket can't be sent from here. Ask your System Manager to connect it (HDS Support Settings, Connect to TBO Support)."
+				),
+			});
+			return;
+		}
 		this.opts = opts;
 		this.init_config();
 		this.context = genie.capture_context();

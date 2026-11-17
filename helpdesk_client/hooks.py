@@ -174,6 +174,10 @@ has_permission = {
 # qcs_support_hub.ticket_puller), so nothing polls the Hub. The only job is
 # local housekeeping: session replays of long-finished tickets are deleted.
 scheduler_events = {
+	"hourly": [
+		# tickets TBO Support has not picked up an hour after they were raised: told once to the site's admins
+		"helpdesk_client.inbox.report_waiting_tickets",
+	],
 	"daily": [
 		"helpdesk_client.utils.session_replay.delete_expired_session_replays",
 		# a fix waiting for the user's check is brought up every 3 days (Phase 13)

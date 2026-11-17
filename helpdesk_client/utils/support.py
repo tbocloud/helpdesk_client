@@ -8,9 +8,15 @@ from frappe import _
 from frappe.utils import cint, flt
 from frappe.utils.safe_exec import get_safe_globals, safe_eval
 
-from helpdesk_client.utils import message_id
+from helpdesk_client.utils import message_id, site_connected
 from helpdesk_client.utils.context import refuse_hub_user, ticket_context
 from helpdesk_client.utils.session_replay import attach_session_files
+
+
+def not_connected_message() -> str:
+	return _(
+		"This site is not connected to TBO Support, so the ticket can't be sent. Ask your System Manager to connect it (HDS Support Settings, Connect to TBO Support)."
+	)
 
 
 @frappe.whitelist()
@@ -40,6 +46,9 @@ def create_ticket(
 	if not settings.enable_ticket_raising:
 		frappe.throw(_("Ticket raising is not enabled for this site."))
 	refuse_hub_user()
+	if not site_connected(settings):
+		# TBO Support collects tickets from connected sites only: this one would wait for ever
+		frappe.throw(not_connected_message(), title=_("Not sent"))
 
 	request = message_id(client_message_id)
 	if request:

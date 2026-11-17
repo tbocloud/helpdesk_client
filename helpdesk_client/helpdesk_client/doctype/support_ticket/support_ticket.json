@@ -38,6 +38,7 @@
   "reopen_requested",
   "reopen_count",
   "confirmation_reminded_at",
+  "pending_reported_at",
   "context_section",
   "page_route",
   "ref_doctype",
@@ -273,6 +274,15 @@
    "read_only": 1
   },
   {
+   "description": "When this site's System Managers were told TBO Support had not picked the ticket up an hour after it was raised (once per ticket)",
+   "fieldname": "pending_reported_at",
+   "fieldtype": "Datetime",
+   "hidden": 1,
+   "label": "Pending Reported At",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
    "collapsible": 1,
    "fieldname": "context_section",
    "fieldtype": "Section Break",
@@ -347,7 +357,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-11-16 12:00:00.000000",
+ "modified": "2026-11-17 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Helpdesk Client",
  "name": "Support Ticket",

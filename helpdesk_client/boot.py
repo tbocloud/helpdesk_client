@@ -5,6 +5,7 @@ import frappe
 from frappe.utils import cint
 
 from helpdesk_client import inbox
+from helpdesk_client.utils import site_connected
 from helpdesk_client.utils.context import signed_in_as_tbo_support
 from helpdesk_client.utils.session_replay import get_replay_bootinfo
 
@@ -12,6 +13,8 @@ from helpdesk_client.utils.session_replay import get_replay_bootinfo
 def set_bootinfo(bootinfo):
 	genie_settings = frappe.get_cached_doc("HDS Support Settings")
 	bootinfo["genie_support_enabled"] = genie_settings.enable_ticket_raising
+	# not connected to TBO Support: the Support button says so instead of taking a ticket nobody collects
+	bootinfo["genie_support_connected"] = site_connected(genie_settings)
 	# the Support button opens the chat (TBO Copilot Phase 5) when this site is paired and it is on
 	bootinfo["genie_chat_enabled"] = bool(
 		genie_settings.enable_ticket_raising

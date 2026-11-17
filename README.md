@@ -29,6 +29,8 @@ Corrections use two tools. `check_change` writes nothing and runs none of this s
 
 ### Who may raise a ticket here
 
+A site that is not connected to TBO Support (no Client ID, or support switched off) takes no ticket: the Support button's form says so at once, `create_ticket` refuses with the same words, and a ticket left Pending reads "Not sent: this site is not connected to TBO Support". Every hour (`inbox.report_waiting_tickets`), tickets still Pending an hour after they were raised are reported once each to this site's System Managers (and Administrator, never TBO Support's own users), with the likely reason and a link to the Pending tickets. The settings page warns when ticket raising is on but the site is not connected.
+
 The Support button (the chat, or the form) is for the customer's own users. TBO Support signed in here as its support user (**Login to site** on the hub) gets a notice instead, and `chat.start`, `chat.send` and `create_ticket` refuse it, so a ticket never names TBO as the customer. Administrator still raises tickets as the site's **Fallback Contact Email**.
 
 ### The Support panel: one chat per ticket

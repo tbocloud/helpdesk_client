@@ -55,16 +55,17 @@ class TestStatusNotifications(FrappeTestCase):
 		self.assertIsNotNone(doc.last_synced)
 
 	def test_client_schedules_no_poller(self):
-		"""The outbound poller is gone; the crons are local: replay cleanup and the reminder to
-		check a fix (it writes notices here and calls nobody)."""
+		"""The outbound poller is gone; the crons are local: replay cleanup, the reminder to check a fix
+		and the report of tickets nobody picked up (they write notices here and call nobody)."""
 		events = frappe.get_hooks("scheduler_events", app_name="helpdesk_client")
 		self.assertEqual(
 			dict(events),
 			{
+				"hourly": ["helpdesk_client.inbox.report_waiting_tickets"],
 				"daily": [
 					"helpdesk_client.utils.session_replay.delete_expired_session_replays",
 					"helpdesk_client.inbox.remind_unconfirmed",
-				]
+				],
 			},
 			f"client must schedule no poller, found: {events}",
 		)

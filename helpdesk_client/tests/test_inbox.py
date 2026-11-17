@@ -4,11 +4,11 @@
 """The support inbox (TBO Copilot Phase 13): one chat per ticket, the dots, the actions and the reminders."""
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_days, now_datetime
+from frappe.utils import add_days, add_to_date, now_datetime
 
 from helpdesk_client import boot, chat, inbox
 from helpdesk_client.tests.test_chat import OTHER, USER, ChatCase, hub_says
@@ -294,3 +294,67 @@ class TestTheNotices(ChatCase):
 		info = frappe._dict()
 		boot.set_bootinfo(info)
 		self.assertEqual(info.genie_actions_needed, 1)
+
+
+class TestNotConnected(ChatCase):
+	"""Phase 23 B8: a site that is not connected takes no ticket, and tickets nobody picked up are reported."""
+
+	def disconnect(self):
+		frappe.db.set_single_value("HDS Support Settings", "client_id", "")
+		frappe.clear_document_cache("HDS Support Settings", "HDS Support Settings")
+
+	def test_the_form_refuses_instead_of_saying_sent(self):
+		from helpdesk_client.utils.support import create_ticket
+
+		self.disconnect()
+		frappe.set_user(USER)
+		with self.assertRaisesRegex(frappe.ValidationError, "not connected"):
+			create_ticket("Printer offline", "<p>offline</p>")
+		self.assertFalse(frappe.db.exists("Support Ticket", {"raised_by": USER}))
+		info = frappe._dict()
+		boot.set_bootinfo(info)
+		self.assertFalse(info.genie_support_connected)
+
+	def test_a_waiting_ticket_says_it_was_not_sent(self):
+		frappe.set_user(USER)
+		t = ticket(status="Pending")
+		self.assertEqual(inbox.state(t)["line"], "Sent to TBO Support")
+		self.disconnect()
+		self.assertIn("not connected", inbox.state(t)["line"])
+
+	def test_tickets_pending_over_an_hour_are_reported_once_each_to_the_sites_admins(self):
+		from helpdesk_client.support_user import get_support_user
+		from helpdesk_client.tests.test_hub_api import ensure_user
+
+		admin = ensure_user("p23-site-admin@example.com", roles=("System Manager",))
+		ensure_user(get_support_user(), roles=("System Manager",))
+		frappe.set_user(USER)
+		old = [ticket(subject=f"Waiting {i}", status="Pending") for i in range(2)]
+		fresh = ticket(subject="Just raised", status="Pending")
+		picked_up = ticket(subject="Picked up", status="Open")
+		frappe.set_user("Administrator")
+		for t in (*old, picked_up):
+			frappe.db.set_value(
+				"Support Ticket",
+				t.name,
+				"creation",
+				add_to_date(now_datetime(), hours=-2),
+				update_modified=False,
+			)
+
+		with patch.object(inbox, "tell") as told:
+			inbox.report_waiting_tickets()
+			inbox.report_waiting_tickets()  # the next hour: already told
+
+		self.assertEqual(told.call_count, 1)
+		users, subject, reason, link, _first = told.call_args.args
+		self.assertIn(admin, users)
+		self.assertIn("Administrator", users)
+		self.assertNotIn(get_support_user(), users)  # never TBO Support's own user
+		for t in old:
+			self.assertIn(t.name, subject)
+			self.assertTrue(frappe.db.get_value("Support Ticket", t.name, "pending_reported_at"))
+		self.assertNotIn(fresh.name, subject)
+		self.assertNotIn(picked_up.name, subject)
+		self.assertIn("not picked them up", reason)
+		self.assertEqual(link, "/app/support-ticket?status=Pending")
