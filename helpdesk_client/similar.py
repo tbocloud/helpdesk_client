@@ -10,6 +10,7 @@ the problem. Only a ticket's title, status and number of colleagues are shown, n
 HR or payroll ticket.
 """
 
+import json
 import re
 
 import frappe
@@ -114,7 +115,9 @@ def _hr_doctype(doctype: str) -> bool:
 
 
 def _is_hr(t) -> bool:
-	return _hr_doctype(t.ref_doctype) or bool(words(t.subject) & HR_WORDS)
+	# the description too: a title may not say it is about pay or leave
+	said = words(t.subject) | words(html2text(t.get("description") or "", wrap=False))
+	return _hr_doctype(t.ref_doctype) or bool(said & HR_WORDS)
 
 
 def _what_the_chat_is_about(doc) -> tuple[set[str], str, str]:
@@ -170,13 +173,20 @@ def _card(t) -> dict:
 	}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def similar(conversation: str) -> list[dict]:
-	"""Up to two open tickets from colleagues that look like this chat's problem."""
+	"""Up to two open tickets from colleagues that look like this chat's problem. They are kept on the chat:
+	only these can be joined from it."""
 	inbox.require_user()
 	doc = chat._mine(conversation)
 	if doc.ticket or not enabled():
 		return []
+	shown = _matches(doc)
+	doc.db_set("offered_tickets", json.dumps([t.name for t in shown]), update_modified=False)
+	return [_card(t) for t in shown]
+
+
+def _matches(doc) -> list:
 	said, ref_doctype, ref_docname = _what_the_chat_is_about(doc)
 	if not said and not ref_doctype:
 		return []
@@ -185,7 +195,15 @@ def similar(conversation: str) -> list[dict]:
 	scored = [(_score(t, said, ref_doctype, ref_docname), t) for t in _candidates(frappe.session.user)]
 	scored = [pair for pair in scored if pair[0] >= MIN_SCORE]
 	scored.sort(key=lambda pair: pair[0], reverse=True)  # stable: equal scores keep the newest first
-	return [_card(pair[1]) for pair in scored[:SHOWN]]
+	return [pair[1] for pair in scored[:SHOWN]]
+
+
+def _offered(doc) -> set[str]:
+	"""The tickets this chat offered (Phase 23 B13); worked out again for a chat that never asked."""
+	kept = doc.get("offered_tickets")
+	if kept:
+		return set(frappe.parse_json(kept) or [])
+	return {t.name for t in _matches(doc)}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -199,8 +217,8 @@ def join(conversation: str, ticket: str) -> dict:
 		frappe.throw(_("This chat is about a ticket already."))
 	if not enabled():
 		frappe.throw(_("Following colleagues' tickets is switched off on this site."), frappe.PermissionError)
-	shown = {t.name for t in _candidates(user)}
-	if ticket not in shown:
+	# only a ticket this chat offered, and still open: not any colleague's ticket by its name (Phase 23 B13)
+	if ticket not in _offered(doc) or ticket not in {t.name for t in _candidates(user)}:
 		frappe.throw(_("This ticket can't be followed."), frappe.PermissionError)
 	t = frappe.get_doc(inbox.TICKET, ticket)
 	frappe.get_doc(

@@ -8,7 +8,8 @@ from frappe import _
 def _readers(doc, followers_only: bool = False) -> list[str]:
 	"""Who hears about a status or stage change: the reporter, and the colleagues who follow the ticket."""
 	users = ([] if followers_only else [doc.raised_by]) + [f.user for f in doc.get("followers") or []]
-	return [u for u in dict.fromkeys(users) if u and u not in ("Guest", "Administrator")]
+	# Administrator too: on many sites it is the admin's own sign-in, and its tickets need their notices
+	return [u for u in dict.fromkeys(users) if u and u != "Guest"]
 
 
 def notify_status_change(doc, new_status, followers_only: bool = False):

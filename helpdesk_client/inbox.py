@@ -300,7 +300,7 @@ def ticket_status(ticket: str) -> dict:
 def refresh_for(ticket) -> None:
 	"""The panel, the full page and the red button reload when a ticket changes."""
 	users = {ticket.owner, ticket.raised_by} | {f.user for f in ticket.get("followers") or []}
-	for user in users - {None, "", "Guest", "Administrator"}:
+	for user in users - {None, "", "Guest"}:
 		frappe.publish_realtime(
 			"helpdesk_client_inbox", {"ticket": ticket.name}, user=user, after_commit=True
 		)

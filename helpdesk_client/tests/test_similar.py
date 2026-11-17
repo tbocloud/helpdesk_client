@@ -182,3 +182,37 @@ class TestJoiningOne(SimilarCase):
 		with self.assertRaises(frappe.PermissionError):
 			similar.join(name, mine.name)
 		self.assertFalse(any(b'"joined"' in body for _url, body, _headers in self.posted))
+
+	def test_only_the_tickets_the_chat_offered_can_be_joined(self):
+		"""Phase 23 B13: not any colleague's open ticket by its name, only the two shown."""
+		frappe.set_user(OTHER)
+		newer = [
+			ticket(
+				subject=self.theirs.subject,
+				description=self.theirs.description,
+				raised_by=OTHER,
+				ticket_id=f"004{i}",
+				status="Open",
+			)
+			for i in range(2)
+		]
+		name = self.chat_about("my sales invoices are blocked by the margin rule")
+		shown = [r["name"] for r in similar.similar(name)]
+		self.assertEqual(sorted(shown), sorted(t.name for t in newer))  # the two newest of three alike
+
+		with self.assertRaises(frappe.PermissionError):
+			similar.join(name, self.theirs.name)  # open and alike, but not offered here
+		self.replies.append(hub_says(state="Closed"))
+		self.assertEqual(similar.join(name, shown[0])["ticket"], shown[0])
+
+	def test_an_hr_word_in_the_description_keeps_a_ticket_private(self):
+		frappe.set_user(OTHER)
+		private = ticket(
+			subject="Sales invoices blocked by the margin rule",
+			description="<p>Since the salary run, sales invoices are blocked by the margin rule.</p>",
+			raised_by=OTHER,
+			ticket_id="0050",
+			status="Open",
+		)
+		name = self.chat_about("my sales invoices are blocked by the margin rule")
+		self.assertNotIn(private.name, [r["name"] for r in similar.similar(name)])

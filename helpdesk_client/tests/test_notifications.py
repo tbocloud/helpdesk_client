@@ -69,3 +69,12 @@ class TestStatusNotifications(FrappeTestCase):
 			},
 			f"client must schedule no poller, found: {events}",
 		)
+
+
+class TestWhoHears(FrappeTestCase):
+	def test_administrators_own_tickets_get_their_notices(self):
+		"""Phase 23 B15: on many sites Administrator is the admin's own sign-in."""
+		from helpdesk_client.utils.notifications import _readers
+
+		doc = frappe._dict(raised_by="Administrator", followers=[frappe._dict(user="Guest")])
+		self.assertEqual(_readers(doc), ["Administrator"])
