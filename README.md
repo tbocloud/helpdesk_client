@@ -13,6 +13,8 @@ The hub reaches this site over MCP (`helpdesk_client.mcp.handler.handle`) with t
 
 Every argument that names a doctype, including lists, is checked against the allowed and blocked lists.
 
+**HR and payroll stay private by default** (Phase 23). With **Keep HR and payroll private** (HDS Support Settings, Access Control) ticked, every tool refuses the HR and Payroll modules, any doctype of the hrms app, and Employee with its history tables, as if they were blocked. A new install, and a site not connected yet when it updates, starts with it ticked. A site connected before this version keeps reading them as before; the update leaves its blocked list alone and sends its System Managers a note on how to tick it (patch `v15_0_7.hr_payroll_privacy`).
+
 ### What TBO Support (the hub) may change here
 
 Every write from the hub passes this site's guard (`helpdesk_client.mcp.write_guard`), whatever the hub asks:

@@ -19,13 +19,13 @@ from frappe.core.utils import html2text
 from frappe.utils import cint, now_datetime
 
 from helpdesk_client import chat, inbox
+from helpdesk_client.mcp.access_control import is_hr_or_payroll
 
 SHOWN = 2
 # the ticket is with TBO Support and still open
 OPEN_STATUSES = ("Open", "Replied", "Paused")
 MIN_SCORE = 4
 LOOK_BACK = 300
-HR_MODULES = {"HR", "Payroll"}
 HR_WORDS = {
 	"salary",
 	"salaries",
@@ -106,12 +106,7 @@ def words(text: str) -> set[str]:
 
 
 def _hr_doctype(doctype: str) -> bool:
-	if not doctype:
-		return False
-	module = frappe.db.get_value("DocType", doctype, "module")
-	if not module:
-		return False
-	return module in HR_MODULES or frappe.db.get_value("Module Def", module, "app_name") == "hrms"
+	return is_hr_or_payroll(doctype)
 
 
 def _is_hr(t) -> bool:

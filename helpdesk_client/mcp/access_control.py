@@ -6,6 +6,28 @@
 import frappe
 from frappe import _
 
+HR_MODULES = {"HR", "Payroll"}
+HR_APP = "hrms"
+# HR records ERPNext keeps outside the HR modules (in Setup)
+HR_DOCTYPES = {
+	"Employee",
+	"Employee Education",
+	"Employee External Work History",
+	"Employee Internal Work History",
+}
+
+
+def is_hr_or_payroll(doctype: str) -> bool:
+	"""An HR or payroll doctype: the HR and Payroll modules, any doctype of the hrms app, and Employee."""
+	if not doctype:
+		return False
+	if doctype in HR_DOCTYPES:
+		return True
+	module = frappe.db.get_value("DocType", doctype, "module", cache=True)
+	if not module:
+		return False
+	return module in HR_MODULES or frappe.db.get_value("Module Def", module, "app_name", cache=True) == HR_APP
+
 
 def check_enabled():
 	"""Every MCP tool needs support to be enabled, with or without a doctype."""
@@ -37,6 +59,15 @@ def check_doctype_access(doctype, is_write=False):
 	blocked = {row.doctype_name for row in settings.blocked_doctypes}
 	if doctype in blocked:
 		frappe.throw(_("Access to {0} is blocked").format(doctype), frappe.PermissionError)
+
+	# HR and payroll stay private unless this site's System Manager lets TBO Support read them (Phase 23 B16)
+	if settings.get("block_hr_payroll") and is_hr_or_payroll(doctype):
+		frappe.throw(
+			_("Access to {0} is blocked: HR and payroll records are kept private on this site").format(
+				doctype
+			),
+			frappe.PermissionError,
+		)
 
 	# Check allowed doctypes (whitelist mode)
 	allowed = {row.doctype_name for row in settings.allowed_doctypes}

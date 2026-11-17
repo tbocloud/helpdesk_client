@@ -18,6 +18,7 @@
   "rotation_error",
   "section_access_control",
   "blocked_doctypes",
+  "block_hr_payroll",
   "column_break_acl",
   "allowed_doctypes",
   "section_write_safety",
@@ -124,6 +125,13 @@
    "fieldtype": "Table",
    "label": "Blocked DocTypes",
    "options": "HDS Blocked DocType"
+  },
+  {
+   "default": "1",
+   "description": "TBO Support cannot read or change HR and payroll records here: the HR and Payroll modules, the hrms app and Employee. On for sites connected from this version; sites connected before keep reading them until a System Manager ticks this.",
+   "fieldname": "block_hr_payroll",
+   "fieldtype": "Check",
+   "label": "Keep HR and payroll private"
   },
   {
    "fieldname": "column_break_acl",
@@ -321,7 +329,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-11-01 09:00:00.000000",
+ "modified": "2026-11-17 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Helpdesk Client",
  "name": "HDS Support Settings",

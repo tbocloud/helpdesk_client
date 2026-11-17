@@ -79,6 +79,9 @@ def _create_default_settings():
 		for dt in DEFAULT_BLOCKED_DOCTYPES:
 			settings.append("blocked_doctypes", {"doctype_name": dt})
 
+	# a new connection keeps HR and payroll private until this site's System Manager opens them (Phase 23 B16)
+	settings.block_hr_payroll = 1
+
 	if not settings.max_list_limit:
 		settings.max_list_limit = 100
 
