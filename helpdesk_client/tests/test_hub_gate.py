@@ -7,10 +7,11 @@ import os
 from unittest.mock import MagicMock, patch
 
 import frappe
+import requests
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils.password import get_decrypted_password
 
-from helpdesk_client import api, hub_gate
+from helpdesk_client import api, hub_gate, setup
 from helpdesk_client.boot import set_bootinfo
 from helpdesk_client.mcp.session import create_session, validate_session
 from helpdesk_client.patches.v15_0_3 import make_recordings_private
@@ -99,6 +100,19 @@ class TestKeyRevocation(FrappeTestCase):
 		self.assertIsNone(get_decrypted_password("User", SUPPORT, "api_secret", raise_exception=False))
 		self.assertFalse(validate_session(session))
 
+	def test_revoke_ends_the_support_users_desk_sessions(self):
+		# a login link already used opened a desk session, and that session needs no keys
+		sessions = frappe.qb.DocType("Sessions")
+		frappe.qb.into(sessions).columns(
+			sessions.sessiondata, sessions.user, sessions.lastupdate, sessions.sid, sessions.status
+		).insert(("{}", SUPPORT, frappe.utils.now(), frappe.generate_hash(), "Active")).run()
+
+		with patch.object(api.frappe.db, "commit"):  # ending a session commits
+			api.revoke_support_keys()
+
+		left = frappe.qb.from_(sessions).select(sessions.sid).where(sessions.user == SUPPORT).run(pluck=True)
+		self.assertEqual(left, [])
+
 	def test_deregister_revokes_the_keys(self):
 		frappe.db.set_single_value("HDS Support Settings", "client_id", "TBO-CONN-2026-00001")
 		with patch.object(api.frappe.db, "commit"), patch.object(api, "_require_support_user"):
@@ -112,6 +126,26 @@ class TestKeyRevocation(FrappeTestCase):
 			with self.assertRaises(frappe.ValidationError):
 				api.connect_to_hub(code="K7PQ-2MXD-9R", hub_url="https://teams.teambackoffice.com")
 		self.assertFalse(frappe.db.get_value("User", SUPPORT, "api_key"))
+
+	def test_a_pairing_that_fails_after_the_hub_registered_leaves_the_site_unpaired(self):
+		def registered_then_timed_out(*args, **kwargs):
+			# the hub's register_connection reached this site and committed; its answer here never came
+			frappe.db.set_single_value(
+				"HDS Support Settings", {"client_id": "TBO-CONN-2026-00001", "contract_active": 1}
+			)
+			raise requests.Timeout("read timed out")
+
+		with (
+			patch.object(api.frappe.db, "commit"),
+			patch("requests.post", side_effect=registered_then_timed_out),
+			self.assertRaises(frappe.ValidationError),
+		):
+			api.connect_to_hub(code="K7PQ-2MXD-9R", hub_url="https://teams.teambackoffice.com")
+
+		self.assertFalse(frappe.db.get_value("User", SUPPORT, "api_key"))
+		# not "Registered with Hub" with keys that no longer work: Connect to TBO Support shows again
+		self.assertFalse(frappe.db.get_single_value("HDS Support Settings", "client_id"))
+		self.assertFalse(frappe.db.get_single_value("HDS Support Settings", "contract_active"))
 
 	def test_the_unpaired_site_patch_revokes_keys(self):
 		frappe.db.set_single_value("HDS Support Settings", "client_id", "")
@@ -159,9 +193,12 @@ class TestPrivateRecordings(FrappeTestCase):
 		ticket.db_set("screen_recording", file.file_url)
 		self.assertTrue(file.file_url.startswith("/files/"))
 
-		with patch(
-			"frappe.log_error",
-			side_effect=AssertionError("the patch logged an error instead of converting the file"),
+		with (
+			patch.object(frappe.db, "commit"),  # the patch commits each file it moves
+			patch(
+				"frappe.log_error",
+				side_effect=AssertionError("the patch logged an error instead of converting the file"),
+			),
 		):
 			make_recordings_private.execute()
 
@@ -178,3 +215,19 @@ class TestPrivateRecordings(FrappeTestCase):
 		for path in paths:
 			if os.path.exists(path):
 				os.remove(path)
+
+	def test_a_recording_that_cannot_be_moved_never_stops_a_migrate(self):
+		# a file that cannot be moved (a permission error on disk, say) is logged and stays public for now:
+		# every later migrate tries it again, and the customer's migrate (their deploy) goes on
+		row = frappe._dict(name="unmovable-recording", file_url="/files/unmovable-recording.webm")
+		with (
+			patch.object(setup.frappe, "get_all", return_value=[row]),
+			patch.object(setup.frappe, "get_doc", side_effect=OSError("Permission denied")),
+			patch.object(setup.frappe, "log_error") as logged,
+			patch.object(frappe.db, "rollback"),
+			patch.object(frappe.db, "commit"),
+		):
+			self.assertEqual(setup.make_recordings_private(), ["unmovable-recording"])
+			make_recordings_private.execute()  # the patch finishes all the same
+		self.assertEqual(logged.call_count, 2)
+		self.assertIn("helpdesk_client.setup.make_recordings_private", frappe.get_hooks("after_migrate"))

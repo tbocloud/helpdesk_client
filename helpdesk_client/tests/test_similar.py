@@ -75,6 +75,15 @@ class TestFindingThem(SimilarCase):
 		name = self.chat_about("payroll: sales invoices blocked by the margin rule")
 		self.assertEqual(similar.similar(name), [])
 
+	def test_a_short_hr_word_is_caught_too(self):
+		frappe.set_user(OTHER)
+		ticket(subject="WPS bank export fails", raised_by=OTHER, ticket_id="0035", status="Open")
+		frappe.set_user(USER)
+		# the chat says it
+		self.assertEqual(similar.similar(self.chat_about("WPS bank export fails")), [])
+		# the colleague's ticket says it and the chat does not
+		self.assertEqual(similar.similar(self.chat_about("the bank export fails")), [])
+
 	def test_the_site_can_switch_it_off(self):
 		frappe.db.set_single_value("HDS Support Settings", "show_similar_tickets", 0)
 		frappe.clear_document_cache("HDS Support Settings", "HDS Support Settings")

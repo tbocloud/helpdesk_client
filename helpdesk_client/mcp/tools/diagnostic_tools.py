@@ -16,6 +16,7 @@ import subprocess
 import frappe
 from frappe.utils import add_to_date, now_datetime
 
+from helpdesk_client.mcp.access_control import check_doctype_access
 from helpdesk_client.mcp.tools import register_tool
 from helpdesk_client.support_user import get_support_user
 
@@ -32,6 +33,24 @@ CUSTOMIZATIONS = {
 	"Print Format": ("doc_type", ["doc_type", "standard", "disabled"]),
 	"Notification": ("document_type", ["document_type", "event", "channel", "enabled"]),
 }
+
+
+# --- the read lists row by row, shared with get_error_log ---
+
+
+def readable_rows(rows: list, field: str, readable: dict | None = None) -> list:
+	"""Only the rows about a doctype (named in `field`) the MCP read lists let the hub read; rows about none stay.
+
+	`readable` keeps the answer per doctype across calls: each check loads the settings.
+	"""
+	readable = {} if readable is None else readable
+	for doctype in {row.get(field) for row in rows if row.get(field)} - set(readable):
+		try:
+			check_doctype_access(doctype)
+			readable[doctype] = True
+		except frappe.PermissionError:
+			readable[doctype] = False
+	return [row for row in rows if not row.get(field) or readable[row.get(field)]]
 
 
 # --- error helpers, shared with get_error_log ---
@@ -177,7 +196,7 @@ def get_code_identity(apps=None, **_kwargs) -> str:
 def get_customizations(doctypes=None, since=None, limit: int = 100, **_kwargs) -> str:
 	"""The site's own changes on top of the apps: custom fields, property setters, scripts, workflows, print formats, notifications."""
 	limit = max(1, min(int(limit), 500))
-	result = {}
+	result, readable = {}, {}
 	for doctype, (link_field, fields) in CUSTOMIZATIONS.items():
 		filters = {}
 		if doctypes:
@@ -185,6 +204,7 @@ def get_customizations(doctypes=None, since=None, limit: int = 100, **_kwargs) -
 		if since:
 			filters["modified"] = [">=", since]
 		try:
+			check_doctype_access(doctype)
 			rows = frappe.get_list(
 				doctype,
 				filters=filters,
@@ -194,6 +214,9 @@ def get_customizations(doctypes=None, since=None, limit: int = 100, **_kwargs) -
 			)
 		except frappe.PermissionError:
 			rows = None  # the support user may not read this kind; say so instead of failing
+		else:
+			# customizations of a doctype the hub may not read stay here, asked for or not
+			rows = readable_rows(rows, link_field, readable)
 		result[doctype] = rows
 	return frappe.as_json(result, indent=2)
 
@@ -213,15 +236,21 @@ def get_deploy_status(since=None, **_kwargs) -> str:
 		order_by="creation desc",
 		limit_page_length=50,
 	)
-	errors = frappe.get_list(
-		"Error Log",
-		filters={"creation": [">=", since]},
-		fields=["method", "error"],
-		order_by="creation desc",
-		limit_page_length=500,
-	)
+	try:
+		check_doctype_access("Error Log")
+		errors = frappe.get_list(
+			"Error Log",
+			filters={"creation": [">=", since]},
+			fields=["method", "error", "reference_doctype"],
+			order_by="creation desc",
+			limit_page_length=500,
+		)
+	except frappe.PermissionError:
+		errors = None  # the hub may not read Error Log here; the rest still answers
+	else:
+		errors = readable_rows(errors, "reference_doctype")
 	counts = {}
-	for row in errors:
+	for row in errors or []:
 		key = signature(row.error, row.method)
 		counts[key] = counts.get(key, 0) + 1
 	try:
@@ -237,7 +266,9 @@ def get_deploy_status(since=None, **_kwargs) -> str:
 			"maintenance_mode": bool(frappe.conf.get("maintenance_mode")),
 			"workers": workers,
 			"patches": patches,
-			"errors": {
+			"errors": None
+			if errors is None
+			else {
 				"count": len(errors),
 				"top": [
 					{"signature": key, "count": count}
@@ -262,19 +293,38 @@ def actor_of(owner: str, data_import=None) -> str:
 	return "person"
 
 
+def import_of(data: dict):
+	"""The Data Import a change came from. Frappe marks it inside the version's data, not on the Version:
+	a Data Import sets updater_reference; data_import is the older marker."""
+	reference = data.get("updater_reference")
+	if isinstance(reference, dict) and reference.get("doctype") == "Data Import":
+		return reference.get("docname") or True
+	return data.get("data_import")
+
+
+def hidden_fields(doctype: str) -> set:
+	"""Fields of `doctype` whose values the calling user may not see: a permission level they
+	lack, or a masked field (Frappe v16)."""
+	meta = frappe.get_meta(doctype)
+	levels = set(meta.get_permlevel_access("read"))
+	hidden = {df.fieldname for df in meta.fields if df.permlevel and df.permlevel not in levels}
+	masked = getattr(meta, "get_masked_fields", None)
+	if masked:
+		hidden.update(df.fieldname for df in masked())
+	return hidden
+
+
 def get_version_history(doctype, name, since=None, limit: int = 20, **_kwargs) -> str:
 	"""Who changed a record and what: each change with its actor (hub, system, import or person)."""
 	frappe.has_permission(doctype, "read", name, throw=True)
+	hidden = hidden_fields(doctype)  # reading the record is not reading every field of it
 	filters = {"ref_doctype": doctype, "docname": name}
 	if since:
 		filters["creation"] = [">=", since]
-	fields = ["name", "owner", "creation", "data"]
-	if frappe.get_meta("Version").has_field("data_import"):
-		fields.append("data_import")
 	versions = frappe.get_all(
 		"Version",
 		filters=filters,
-		fields=fields,
+		fields=["name", "owner", "creation", "data"],
 		order_by="creation desc",
 		limit_page_length=max(1, min(int(limit), 100)),
 	)
@@ -288,11 +338,11 @@ def get_version_history(doctype, name, since=None, limit: int = 20, **_kwargs) -
 			{
 				"at": str(version.creation),
 				"by": version.owner,
-				"actor": actor_of(version.owner, version.get("data_import")),
+				"actor": actor_of(version.owner, import_of(data)),
 				"changed": [
 					{"field": change[0], "from": str(change[1])[:200], "to": str(change[2])[:200]}
 					for change in (data.get("changed") or [])
-					if isinstance(change, list | tuple) and len(change) == 3
+					if isinstance(change, list | tuple) and len(change) == 3 and change[0] not in hidden
 				],
 				"rows_added": len(data.get("added") or []),
 				"rows_removed": len(data.get("removed") or []),

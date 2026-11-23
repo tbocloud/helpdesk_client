@@ -130,13 +130,15 @@ def _user() -> dict:
 
 
 def _readable(conversation: str):
-	"""The user's own chat, or the chat of a ticket they follow (read only)."""
-	from helpdesk_client.helpdesk_client.doctype.support_ticket.support_ticket import is_follower
+	"""The user's own chat, or the chat of a ticket that is theirs too or that they follow (read only)."""
+	from helpdesk_client.helpdesk_client.doctype.support_ticket.support_ticket import is_follower, is_raiser
 
 	doc = frappe.get_doc(CONVERSATION, conversation)
 	if doc.user == frappe.session.user:
 		return doc
-	if doc.ticket and is_follower(frappe.get_doc(inbox.TICKET, doc.ticket)):
+	# a ticket made for someone else has two raisers: the one who opened its chat first writes in it
+	ticket = frappe.get_doc(inbox.TICKET, doc.ticket) if doc.ticket else None
+	if ticket and (is_raiser(ticket) or is_follower(ticket)):
 		return doc
 	frappe.throw(_("This is not your conversation."), frappe.PermissionError)
 
@@ -298,9 +300,10 @@ def history(conversation: str) -> dict:
 		"ticket": doc.ticket,
 		"ticket_state": inbox.ticket_card(frappe.get_doc(inbox.TICKET, doc.ticket)) if doc.ticket else None,
 		"messages": [_as_dict(frappe._dict(r)) for r in rows],
-		# a colleague who follows the ticket reads its chat; the one who raised it writes in it
+		# a colleague who follows the ticket, or the other person it is raised for, reads its chat;
+		# the one who opened it writes in it
 		"read_only": doc.user != frappe.session.user,
-		"note": _("You follow this ticket. The colleague who raised it answers TBO Support here.")
+		"note": _("The colleague who opened this chat answers TBO Support here.")
 		if doc.user != frappe.session.user
 		else None,
 	}

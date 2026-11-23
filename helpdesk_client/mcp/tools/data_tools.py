@@ -111,8 +111,10 @@ def get_error_log(
 	**_kwargs,
 ) -> str:
 	"""Recent error logs, filtered by method, time and document; each with the app it came from and its top frames."""
-	from helpdesk_client.mcp.tools.diagnostic_tools import app_of, top_frames
+	from helpdesk_client.mcp.access_control import check_doctype_access
+	from helpdesk_client.mcp.tools.diagnostic_tools import app_of, readable_rows, top_frames
 
+	check_doctype_access("Error Log")  # the read lists apply to the log itself too
 	max_limit = get_settings_limit("max_error_log_limit", 50, ERROR_LOG_LIMIT_CEILING)
 	limit = min(int(limit), max_limit)
 	filters = {}
@@ -137,6 +139,8 @@ def get_error_log(
 		order_by="creation desc",
 		limit_page_length=limit,
 	)
+	# errors about a doctype the hub may not read stay here, asked for or not
+	result = readable_rows(result, "reference_doctype")
 	for row in result:
 		row["app"] = app_of(row.get("error"))
 		row["top_frames"] = top_frames(row.get("error"))
@@ -245,5 +249,5 @@ register_tool(
 		},
 	},
 	handler=get_error_log,
-	doctype_args=(),
+	doctype_args=("reference_doctype",),
 )

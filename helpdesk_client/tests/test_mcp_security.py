@@ -117,6 +117,29 @@ class TestToolSwitches(FrappeTestCase):
 		self.assertTrue(created["isError"])
 		self.assertIn("child table", created["content"][0]["text"])
 
+	def test_a_custom_report_is_checked_against_the_report_it_runs(self):
+		# a Custom Report on Note that runs Frappe's own ToDo report
+		name = f"mcp-custom-{frappe.generate_hash(length=6)}"
+		frappe.get_doc(
+			{
+				"doctype": "Report",
+				"name": name,
+				"report_name": name,
+				"report_type": "Custom Report",
+				"ref_doctype": "Note",
+				"reference_report": "ToDo",
+				"is_standard": "No",
+				"module": "Desk",
+			}
+		).db_insert()  # without the controller, which writes standard reports into the app's files
+		settings = frappe.get_single("HDS Support Settings")
+		settings.set("blocked_doctypes", [{"doctype_name": "ToDo"}])
+		settings.set("allowed_doctypes", [])
+		settings.save(ignore_permissions=True)
+		result = execute_tool("execute_report", {"report_name": name})
+		self.assertTrue(result["isError"])
+		self.assertIn("ToDo is blocked", result["content"][0]["text"])
+
 	def test_get_count_needs_read_permission(self):
 		frappe.set_user("Guest")
 		result = execute_tool("get_count", {"doctype": "User"})

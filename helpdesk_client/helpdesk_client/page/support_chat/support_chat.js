@@ -58,12 +58,18 @@ genie.SupportPage = class SupportPage {
 			},
 			on_new_chat: () => this.new_chat(),
 		});
-		genie.support_inbox.listen();
-		genie.support_inbox.on((data) => this.render_rail(data));
 		frappe.router.on("change", () => {
 			genie.on_support_page();
 			if (frappe.get_route()[0] === "support-chat") this.follow_route();
 		});
+		// TBO Support signed in as one of the customer's users: the page only says it is not
+		// for them (follow_route), with no New chat and no inbox
+		if (frappe.boot.genie_hub_user) {
+			box.querySelector(".genie-sc-new").disabled = true;
+			return;
+		}
+		genie.support_inbox.listen();
+		genie.support_inbox.on((data) => this.render_rail(data));
 		genie.support_inbox
 			.load()
 			.catch(() => null)
@@ -71,7 +77,9 @@ genie.SupportPage = class SupportPage {
 	}
 
 	go(name) {
-		frappe.set_route(...["support-chat", name].filter(Boolean));
+		// already the address (a chat that did not load, picked again): no route change to follow
+		if ((frappe.get_route()[1] || null) === (name || null)) this.follow_route();
+		else frappe.set_route(...["support-chat", name].filter(Boolean));
 	}
 
 	new_chat() {
@@ -96,8 +104,15 @@ genie.SupportPage = class SupportPage {
 		this.current = name;
 		this.render_rail(genie.support_inbox.data);
 		if (!name) return this.welcome();
-		if (name.startsWith("SUPCONV-")) this.view.open_chat(name);
-		else this.view.open_ticket(name);
+		const opening = name.startsWith("SUPCONV-")
+			? this.view.open_chat(name)
+			: this.view.open_ticket(name);
+		// it did not load: picking it again tries again
+		opening.then(() => {
+			if (this.current === name && !this.view.conversation && !this.view.ticket) {
+				this.current = undefined;
+			}
+		});
 	}
 
 	welcome() {

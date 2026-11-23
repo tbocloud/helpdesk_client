@@ -73,12 +73,20 @@ genie.support_inbox = {
 			})
 			.finally(() => {
 				this.loading = null;
+				if (this.stale) {
+					this.stale = false;
+					this.load().catch(() => null);
+				}
 			});
 		return this.loading;
 	},
 	refresh_soon() {
 		clearTimeout(this.timer);
-		this.timer = setTimeout(() => this.load().catch(() => null), 500);
+		this.timer = setTimeout(() => {
+			// a load already on its way may have read the overview before this change: one more after it
+			if (this.loading) this.stale = true;
+			this.load().catch(() => null);
+		}, 500);
 	},
 	listen() {
 		if (this.listening) return;
@@ -177,6 +185,7 @@ genie.SupportChatView = class SupportChatView {
 		this.pending = null; // Get help on a form: the chat starts on the first message
 		this.draft = null; // the message being sent, with its id: the same id when it is sent again
 		this.shown = new Set(); // the messages on screen, so one that comes twice shows once
+		this.seq = 0; // which opening of the view is on screen: answers for an earlier one are not shown
 		this.build(parent);
 		frappe.realtime.on("helpdesk_client_chat", (data) => {
 			if (
@@ -247,7 +256,9 @@ genie.SupportChatView = class SupportChatView {
 			this.record_btn.textContent = on ? "■ " + __("Stop recording") : __("Record screen");
 		});
 		this.input.addEventListener("keydown", (e) => {
-			if (e.key === "Enter" && !e.shiftKey) {
+			// an Enter that ends typing with an input method (Chinese, Japanese and others) is not a send;
+			// Safari marks that Enter with keyCode 229 only
+			if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
 				e.preventDefault();
 				this.send_text();
 			}
@@ -262,7 +273,7 @@ genie.SupportChatView = class SupportChatView {
 	// chat instead of a pop-up.
 	send_call(args) {
 		return new Promise((resolve, reject) => {
-			frappe.call({
+			const request = frappe.call({
 				method: "helpdesk_client.chat.send",
 				type: "POST",
 				args,
@@ -270,11 +281,21 @@ genie.SupportChatView = class SupportChatView {
 				callback: (r) => resolve(r.message),
 				error: (r) => reject(new Error(genie.server_message(r))),
 			});
+			// Frappe answers some failures itself (a deadlock or a timeout on the server) without calling
+			// `error`: the request's own failure ends the send then. It runs after Frappe's, and a promise
+			// settles once, so what `error` gave stays when it was called.
+			if (request && typeof request.fail === "function") {
+				request.fail((xhr) =>
+					reject(new Error(genie.server_message(xhr && xhr.responseJSON)))
+				);
+			}
 		});
 	}
 
 	// --- what the view shows ----------------------------------------------------------------------
 
+	// Empties the view for what opens next, and returns that opening's number: an answer that comes back
+	// when another one is on screen is dropped.
 	waiting() {
 		this.conversation = null;
 		this.ticket = null;
@@ -286,42 +307,47 @@ genie.SupportChatView = class SupportChatView {
 		this.shown.clear();
 		this.head.hidden = this.status.hidden = this.foot.hidden = this.closed.hidden = true;
 		this.typing(true, __("Loading…"));
+		return ++this.seq;
 	}
 
 	async open_ticket(name) {
-		this.waiting();
+		const seq = this.waiting();
 		try {
-			this.render(await this.call("chat.open_ticket", { ticket: name }));
+			const r = await this.call("chat.open_ticket", { ticket: name });
+			if (seq === this.seq) this.render(r);
 		} catch (e) {
-			this.unavailable();
+			if (seq === this.seq) this.unavailable();
 		}
 	}
 
 	async open_chat(name) {
-		this.waiting();
+		const seq = this.waiting();
 		try {
-			this.render(await this.call("chat.history", { conversation: name }));
+			const r = await this.call("chat.history", { conversation: name });
+			if (seq === this.seq) this.render(r);
 		} catch (e) {
-			this.unavailable();
+			if (seq === this.seq) this.unavailable();
 		}
 	}
 
 	// A new chat checks first that it is a new problem, not one of the user's open tickets.
 	async start_new(checked) {
+		const seq = this.waiting();
 		if (!checked) {
-			this.waiting();
 			const data = await genie.support_inbox.load().catch(() => null);
+			if (seq !== this.seq) return; // something else was opened meanwhile
 			const open = data ? data.tickets.filter((t) => !t.closed) : [];
 			if (open.length) return this.ask_new_or_ticket(open);
 		}
-		this.waiting();
 		try {
 			const r = await this.call("chat.start", { ...genie.capture_context(), new: 1 });
+			genie.support_inbox.refresh_soon();
+			// something else was opened meanwhile: the new chat waits in the list
+			if (seq !== this.seq) return;
 			this.render(r);
 			if (this.opts.on_chat) this.opts.on_chat(r.conversation);
-			genie.support_inbox.refresh_soon();
 		} catch (e) {
-			this.unavailable();
+			if (seq === this.seq) this.unavailable();
 		}
 	}
 
@@ -677,6 +703,7 @@ genie.SupportChatView = class SupportChatView {
 	}
 
 	async join(ticket, box) {
+		const seq = this.seq;
 		box.querySelectorAll("button").forEach((b) => (b.disabled = true));
 		let r;
 		try {
@@ -685,8 +712,9 @@ genie.SupportChatView = class SupportChatView {
 			box.querySelectorAll("button").forEach((b) => (b.disabled = false));
 			return;
 		}
-		(r.messages || []).forEach((m) => this.append(m));
 		genie.support_inbox.refresh_soon();
+		if (seq !== this.seq) return; // another chat is open now: only the list follows
+		(r.messages || []).forEach((m) => this.append(m));
 		const open = this.button(__("Open {0}", [ticket]), "btn-default", () =>
 			this.pick_ticket(ticket)
 		);
@@ -705,6 +733,7 @@ genie.SupportChatView = class SupportChatView {
 	// chat says why (the server's own words), and nothing shows as sent.
 	async post(args) {
 		if (!this.conversation || this.busy) return null;
+		const seq = this.seq;
 		this.busy = true;
 		this.typing(true);
 		let r = null;
@@ -715,11 +744,26 @@ genie.SupportChatView = class SupportChatView {
 			why = (e && e.message) || "";
 		} finally {
 			this.busy = false;
-			this.typing(false);
+			if (seq === this.seq) this.typing(false);
 		}
 		if (r && r.ok === false) {
 			why = r.error || "";
 			r = null;
+		}
+		if (seq !== this.seq) {
+			// another chat is open now: the list follows, and nothing of this one shows in it
+			genie.support_inbox.refresh_soon();
+			if (!r) {
+				frappe.show_alert({
+					indicator: "red",
+					message: frappe.utils.escape_html(
+						__("Not sent in the chat you left: {0}", [
+							why || __("TBO Support could not be reached. Try again in a moment."),
+						])
+					),
+				});
+			}
+			return r;
 		}
 		if (!r) {
 			this.append({
@@ -760,14 +804,26 @@ genie.SupportChatView = class SupportChatView {
 		const text = (this.input.value || "").trim();
 		if (this.busy || (!text && !this.tray.length)) return;
 		if (this.tray.some((f) => f.error)) return;
+		const seq = this.seq; // the chat this message is for
 		if (this.pending) await this.begin_about();
-		if (!this.conversation) return;
+		if (seq !== this.seq || !this.conversation) return;
+		const items = this.tray.slice(); // the files that go with it
 		let files = [];
-		if (this.tray.length) {
+		if (items.length) {
 			this.busy = true;
 			this.typing(true, __("Uploading…"));
-			files = await this.upload_tray();
+			files = await this.upload_tray(items);
 			this.busy = false;
+			if (seq !== this.seq) {
+				// another chat was opened while the files went up: nothing goes to it unasked
+				frappe.show_alert({
+					indicator: "orange",
+					message: __(
+						"Not sent: another chat was opened. Your message is still in the message box."
+					),
+				});
+				return;
+			}
 			this.typing(false);
 			if (!files) {
 				frappe.show_alert({
@@ -787,7 +843,7 @@ genie.SupportChatView = class SupportChatView {
 		);
 		if (r) {
 			this.draft = null;
-			this.tray = [];
+			this.tray = this.tray.filter((f) => !items.includes(f));
 			this.render_tray();
 			return;
 		}
@@ -801,11 +857,11 @@ genie.SupportChatView = class SupportChatView {
 	// A card's button. True when it went (or the recording started); false and the buttons work again when not.
 	async act(verb, ids = {}) {
 		if (verb === "record") {
-			// TBO Support asked for it: the recording goes as soon as the user stops
-			this.awaiting_recording = true;
+			// TBO Support asked for it in this chat: the recording goes to it as soon as the user stops
+			this.awaiting_recording = this.conversation;
 			const started = await this.record();
 			if (!started) {
-				this.awaiting_recording = false;
+				this.awaiting_recording = null;
 				this.append({
 					direction: "System",
 					kind: "Text",
@@ -831,17 +887,19 @@ genie.SupportChatView = class SupportChatView {
 					(r) => !!r
 				);
 			const method = fixed ? "confirm_resolution" : "reopen";
+			const seq = this.seq;
+			const ticket = this.ticket.name;
 			return frappe
 				.xcall(
 					`helpdesk_client.helpdesk_client.doctype.support_ticket.support_ticket.${method}`,
 					{
-						ticket: this.ticket.name,
+						ticket,
 						note,
 					}
 				)
 				.then(() => {
 					genie.support_inbox.refresh_soon();
-					this.open_ticket(this.ticket.name);
+					if (seq === this.seq) this.open_ticket(ticket);
 					return true;
 				})
 				.catch(() => false);
@@ -874,15 +932,18 @@ genie.SupportChatView = class SupportChatView {
 
 	async ask_status() {
 		if (!this.ticket) return;
+		const seq = this.seq;
+		let message;
 		try {
-			this.append(await this.call("inbox.ticket_status", { ticket: this.ticket.name }));
+			message = await this.call("inbox.ticket_status", { ticket: this.ticket.name });
 		} catch (e) {
-			this.append({
+			message = {
 				direction: "System",
 				kind: "Text",
 				text: __("The status could not be read just now."),
-			});
+			};
 		}
+		if (seq === this.seq) this.append(message); // not in another ticket opened meanwhile
 	}
 
 	// --- files waiting in the message box (Phase 14) ---------------------------------------------
@@ -973,7 +1034,11 @@ genie.SupportChatView = class SupportChatView {
 
 	preview(item) {
 		const url = URL.createObjectURL(item.blob);
-		const d = new frappe.ui.Dialog({ title: item.name, size: "large" });
+		// the dialog's title is HTML: the file's name shows as written
+		const d = new frappe.ui.Dialog({
+			title: frappe.utils.escape_html(item.name),
+			size: "large",
+		});
 		const media = document.createElement(item.kind === "video" ? "video" : "img");
 		media.src = url;
 		media.style.cssText =
@@ -986,9 +1051,9 @@ genie.SupportChatView = class SupportChatView {
 	}
 
 	// Each file is uploaded once: after a failed send it stays in the tray with its address, ready to go again.
-	async upload_tray() {
+	async upload_tray(items) {
 		const files = [];
-		for (const item of this.tray) {
+		for (const item of items) {
 			if (!item.file_url) {
 				item.file_url = await genie
 					.UploadFile(item.blob, item.name, { is_private: 1 })
@@ -1032,18 +1097,23 @@ genie.SupportChatView = class SupportChatView {
 
 	recorded(file) {
 		if (this.opts.reveal) this.opts.reveal();
-		if (this.awaiting_recording && this.conversation) {
-			this.awaiting_recording = false;
-			return this.post_recording(file);
-		}
+		// it goes at once only to the chat that asked for it, while that chat is still open; otherwise it
+		// waits in the tray, to go when the user sends it
+		const asked = this.awaiting_recording;
+		this.awaiting_recording = null;
+		if (asked && asked === this.conversation) return this.post_recording(file);
 		this.add_to_tray(file);
 	}
 
 	async post_recording(file) {
+		const conversation = this.conversation;
 		const url = await genie
 			.UploadFile(file.blob, file.name, { is_private: 1 })
 			.catch(() => null);
 		if (!url) return this.add_to_tray(file);
+		// another chat was opened while it went up: it waits in the tray (uploaded already)
+		if (this.conversation !== conversation)
+			return this.add_to_tray({ ...file, file_url: url });
 		const files = [{ file_url: url, file_name: file.name }];
 		const mine = this.append({ direction: "Customer", kind: "Text", text: "", files });
 		const r = await this.post({
@@ -1110,10 +1180,12 @@ genie.SupportChatView = class SupportChatView {
 		box.append(label, x);
 	}
 
+	// The record stays with the message until the chat has started: a failed start can be sent again, or
+	// sent as a form, with it.
 	async begin_about() {
 		const record = this.pending ? this.pending.record : null;
-		this.pending = null;
-		this.render_about();
+		const seq = this.seq;
+		this.busy = true; // one start, however often Send is pressed
 		this.typing(true);
 		try {
 			const r = await this.call("chat.start", {
@@ -1122,17 +1194,23 @@ genie.SupportChatView = class SupportChatView {
 				ref_docname: record ? record.name || "" : "",
 				new: 1,
 			});
+			genie.support_inbox.refresh_soon();
+			// something else was opened meanwhile: the new chat waits in the list
+			if (seq !== this.seq) return;
+			this.pending = null;
+			this.render_about();
 			this.render(r);
 			if (this.opts.on_chat) this.opts.on_chat(r.conversation);
-			genie.support_inbox.refresh_soon();
 		} catch (e) {
-			this.unavailable();
+			if (seq === this.seq) this.unavailable();
+		} finally {
+			this.busy = false;
 		}
 	}
 
 	// Get help with this error: the record and the error go at once, and TBO Support takes them as facts.
 	async start_with_error(ctx) {
-		this.waiting();
+		const seq = this.waiting();
 		try {
 			const r = await this.call("chat.start", {
 				page_route: ctx.page_route || "",
@@ -1142,11 +1220,13 @@ genie.SupportChatView = class SupportChatView {
 				error_action: ctx.action || "",
 				new: 1,
 			});
+			genie.support_inbox.refresh_soon();
+			// something else was opened meanwhile: the new chat waits in the list
+			if (seq !== this.seq) return;
 			this.render(r);
 			if (this.opts.on_chat) this.opts.on_chat(r.conversation);
-			genie.support_inbox.refresh_soon();
 		} catch (e) {
-			this.unavailable();
+			if (seq === this.seq) this.unavailable();
 		}
 	}
 

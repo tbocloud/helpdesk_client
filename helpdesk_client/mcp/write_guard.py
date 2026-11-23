@@ -160,7 +160,8 @@ def names(payload: dict, doctype: str, name: str, action: str, item: str = "", d
 
 	The item must match exactly, also when the call leaves it out: an approved
 	change is applied once per change set and item, so a call without the item
-	would get past that check."""
+	would get past that check. A call with a digest (apply_change) is covered only
+	by a record with that digest: a record that names no values covers none."""
 	for record in payload.get("records") or []:
 		if not isinstance(record, dict):
 			continue
@@ -172,7 +173,7 @@ def names(payload: dict, doctype: str, name: str, action: str, item: str = "", d
 			continue
 		if str(record.get("item") or "") != (item or ""):
 			continue
-		if record.get("digest") and record.get("digest") != digest:
+		if (record.get("digest") or digest) and record.get("digest") != digest:
 			continue
 		return True
 	return False
@@ -342,6 +343,9 @@ def check(tool: str, arguments: dict, need_approval: bool = True) -> dict | None
 			),
 			frappe.PermissionError,
 		)
+	if tool == "apply_change" and not entry["item"]:
+		# without its item the change could be applied again and again until the approval expires
+		frappe.throw(_("An approved change must name its change item."), frappe.PermissionError)
 	return payload
 
 

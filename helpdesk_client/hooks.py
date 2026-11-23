@@ -93,7 +93,11 @@ doctype_js = {"User": "public/js/impersonation.js"}
 
 # before_install = "helpdesk_client.install.before_install"
 after_install = "helpdesk_client.setup.after_install"
-after_migrate = "helpdesk_client.setup.create_genie_folder"
+after_migrate = [
+	"helpdesk_client.setup.create_genie_folder",
+	# a ticket recording a migrate could not make private is tried again on every migrate
+	"helpdesk_client.setup.make_recordings_private",
+]
 
 # Uninstallation
 # ------------
