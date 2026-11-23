@@ -93,11 +93,7 @@ doctype_js = {"User": "public/js/impersonation.js"}
 
 # before_install = "helpdesk_client.install.before_install"
 after_install = "helpdesk_client.setup.after_install"
-after_migrate = [
-	"helpdesk_client.setup.create_genie_folder",
-	# a ticket recording a migrate could not make private is tried again on every migrate
-	"helpdesk_client.setup.make_recordings_private",
-]
+after_migrate = "helpdesk_client.setup.create_genie_folder"
 
 # Uninstallation
 # ------------
@@ -186,6 +182,8 @@ scheduler_events = {
 		"helpdesk_client.utils.session_replay.delete_expired_session_replays",
 		# a fix waiting for the user's check is brought up every 3 days (Phase 13)
 		"helpdesk_client.inbox.remind_unconfirmed",
+		# a ticket recording the patch could not make private is tried again, in a job of its own
+		"helpdesk_client.setup.make_recordings_private",
 	],
 }
 
