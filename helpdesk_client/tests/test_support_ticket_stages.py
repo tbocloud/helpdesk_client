@@ -19,11 +19,10 @@ STRANGER = "stages-stranger@example.com"
 
 
 def make_user(email):
-	if not frappe.db.exists("User", email):
-		frappe.get_doc(
-			{"doctype": "User", "email": email, "first_name": email.split("@")[0], "send_welcome_email": 0}
-		).insert(ignore_permissions=True)
-	return email
+	"""A desk user, as the ERP's own staff are (test_hub_api.ensure_user)."""
+	from helpdesk_client.tests.test_hub_api import ensure_user
+
+	return ensure_user(email)
 
 
 def delete_error_logs(method):
