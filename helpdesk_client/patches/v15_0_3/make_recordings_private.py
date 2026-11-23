@@ -5,8 +5,8 @@
 
 Sites that never set Save Recording uploaded them as public files, readable
 by anyone with the link. The work is helpdesk_client.setup.make_recordings_private:
-a file that could not be moved is logged and tried again on every later
-migrate (after_migrate), and never stops the customer's migrate.
+a file that could not be moved is rolled back, logged and tried again by the
+daily job, and never stops the customer's migrate.
 """
 
 from helpdesk_client.setup import make_recordings_private

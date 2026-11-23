@@ -217,17 +217,28 @@ class TestPrivateRecordings(FrappeTestCase):
 				os.remove(path)
 
 	def test_a_recording_that_cannot_be_moved_never_stops_a_migrate(self):
-		# a file that cannot be moved (a permission error on disk, say) is logged and stays public for now:
-		# every later migrate tries it again, and the customer's migrate (their deploy) goes on
-		row = frappe._dict(name="unmovable-recording", file_url="/files/unmovable-recording.webm")
+		# a file that cannot be moved (a permission error on disk, say) is rolled back, logged and stays
+		# public for now; the daily job tries it again, and the customer's migrate (their deploy) goes on
+		unmovable = frappe._dict(name="unmovable-recording", file_url="/files/unmovable-recording.webm")
+		gone = frappe._dict(name="gone-recording", file_url="/files/gone-recording.webm")
+
+		def get_doc(doctype, name):
+			raise FileNotFoundError(name) if name == gone.name else OSError("Permission denied")
+
 		with (
-			patch.object(setup.frappe, "get_all", return_value=[row]),
-			patch.object(setup.frappe, "get_doc", side_effect=OSError("Permission denied")),
+			patch.object(setup.frappe, "get_all", return_value=[unmovable, gone]),
+			patch.object(setup.frappe, "get_doc", side_effect=get_doc),
 			patch.object(setup.frappe, "log_error") as logged,
-			patch.object(frappe.db, "rollback"),
-			patch.object(frappe.db, "commit"),
+			patch.object(frappe.db, "rollback") as rolled_back,
+			patch.object(frappe.db, "commit") as committed,
 		):
 			self.assertEqual(setup.make_recordings_private(), ["unmovable-recording"])
+			# what was done before is committed first, so a rollback undoes only one file's change;
+			# a file gone from disk is rolled back too, and not logged
+			self.assertEqual(committed.call_count, 2)  # first, then the file it logged
+			self.assertEqual(rolled_back.call_count, 2)
+			self.assertEqual(logged.call_count, 1)
 			make_recordings_private.execute()  # the patch finishes all the same
-		self.assertEqual(logged.call_count, 2)
-		self.assertIn("helpdesk_client.setup.make_recordings_private", frappe.get_hooks("after_migrate"))
+		daily = frappe.get_hooks("scheduler_events").get("daily") or []
+		self.assertIn("helpdesk_client.setup.make_recordings_private", daily)
+		self.assertNotIn("helpdesk_client.setup.make_recordings_private", frappe.get_hooks("after_migrate"))

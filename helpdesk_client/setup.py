@@ -104,14 +104,19 @@ def create_genie_folder():
 def make_recordings_private() -> list[str]:
 	"""Recordings and screenshots attached to tickets as public files become private: saving the File with
 	is_private moves it under /private/files, and the ticket's recording link follows. Run once by the
-	v15_0_3 patch and again after every migrate: a file that could not be moved (a permission error on
-	disk, a name already taken) is logged and tried again next time, and never stops a migrate, which on
-	a customer's site is their deploy. Returns the files still public."""
+	v15_0_3 patch (in the patch's own transaction) and then daily by the scheduler, never inside a
+	migrate's other work: a file that could not be moved (a permission error on disk, a name already
+	taken) is rolled back, logged and tried again the next day, and never stops a migrate, which on a
+	customer's site is their deploy. Returns the files still public."""
 	files = frappe.get_all(
 		"File",
 		filters={"attached_to_doctype": "Support Ticket", "is_private": 0},
 		fields=["name", "file_url"],
 	)
+	if not files:
+		return []
+	# whatever was done before stays done: a rollback below undoes only one file's own change
+	frappe.db.commit()  # nosemgrep
 	failed = []
 	for row in files:
 		try:
@@ -126,10 +131,11 @@ def make_recordings_private() -> list[str]:
 					doc.file_url,
 					update_modified=False,
 				)
-		except FileNotFoundError:
-			continue  # gone from disk: nothing is left that anyone could read
-		except Exception:
-			frappe.db.rollback()  # this file's change, and its move on disk with it
+		except Exception as e:
+			# this file's change, and its move on disk with it (Frappe moves it back after a rollback)
+			frappe.db.rollback()
+			if isinstance(e, FileNotFoundError):
+				continue  # gone from disk: nothing is left that anyone could read
 			frappe.log_error(f"Could not make recording {row.name} private")
 			failed.append(row.name)
 		# each file moved is kept with its record, whatever happens to the next one
