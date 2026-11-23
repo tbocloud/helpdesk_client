@@ -1,0 +1,413 @@
+# Copyright (c) 2026, Quark Cyber Systems FZC and contributors
+# For license information, please see license.txt
+
+"""The user's support inbox (TBO Copilot Phase 13): their tickets, each with its chat, and their other chats.
+
+A ticket's dot says whose move it is: green once they confirmed the fix (or closed it themselves), red while
+TBO Support waits for them (a fix to check, a question to answer), orange while the team works on it. A ticket
+closes only when the user confirms; until then a fix waiting for their check is brought up every 3 days.
+"""
+
+import frappe
+from frappe import _
+from frappe.model.document import Document
+from frappe.utils import add_days, add_to_date, formatdate, get_datetime, now_datetime
+
+from helpdesk_client.utils import site_connected
+from helpdesk_client.utils.context import refuse_hub_user
+
+TICKET, CONVERSATION, MESSAGE = "Support Ticket", "Support Conversation", "Support Conversation Message"
+FOLLOWER = "Support Ticket Follower"
+GREEN, RED, ORANGE = "green", "red", "orange"
+# hub labels that mean the team is waiting for the customer (Waiting on Task is the team's own wait)
+WAITING_LABELS = ("Replied", "Waiting on Customer")
+OPEN_CHAT_STATES = ("Talking", "Summary", "Before a person")
+REMIND_EVERY_DAYS = 3
+# a ticket TBO Support has not picked up this long after it was raised is reported to the site's admins
+PENDING_REPORT_AFTER_HOURS = 1
+SUMMARY_CHARS = 80
+TICKET_FIELDS = [
+	"name",
+	"ticket_id",
+	"subject",
+	"status",
+	"status_label",
+	"stage",
+	"stage_message",
+	"handled_by",
+	"customer_confirmation",
+	"confirmed_at",
+	"close_requested",
+	"last_synced",
+	"modified",
+	"owner",
+	"raised_by",
+	"ref_doctype",
+	"ref_docname",
+]
+
+
+def require_user():
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Please sign in to see your support tickets."), frappe.PermissionError)
+	refuse_hub_user()
+
+
+def summary(text: str | None) -> str:
+	"""The ticket's problem in one short line."""
+	line = " ".join(str(text or "").split())
+	return line if len(line) <= SUMMARY_CHARS else line[: SUMMARY_CHARS - 1].rstrip() + "…"
+
+
+def answered(t) -> bool:
+	"""The user's confirm or reopen came after TBO Support last moved the ticket (its status, or a new
+	Resolved): TBO Support has not acted on it yet."""
+	if not t.get("confirmed_at"):
+		return False
+	return not t.get("last_synced") or get_datetime(t.confirmed_at) >= get_datetime(t.last_synced)
+
+
+def state(ticket) -> dict:
+	"""The ticket's dot, what it means, and what the user must do (only when red)."""
+	t = _plain(ticket)
+	fresh = answered(t)
+	if fresh and t.customer_confirmation == "Reopened":
+		return _state(ORANGE, _("You reopened it: a person from TBO Support is on it"))
+	if fresh and t.customer_confirmation == "Confirmed":
+		return _state(
+			GREEN, _("Fixed: you confirmed it on {0}").format(formatdate(t.confirmed_at)), closed=True
+		)
+	if t.status == "Closed":
+		return _state(GREEN, _("Closed"), closed=True)
+	if t.close_requested:
+		return _state(GREEN, _("Closing: you asked to close it"), closed=True)
+	if t.status == "Resolved" or t.stage == "Resolved":
+		# a fix, or an answer to a question: the words fit both (Phase 23 B10)
+		return _state(
+			RED,
+			_("Resolved by TBO Support: please check it"),
+			_("Check it and confirm it is sorted"),
+			confirm=True,
+		)
+	if t.stage == "Waiting for you" or t.status == "Replied" or t.status_label in WAITING_LABELS:
+		asked = (t.stage_message if t.stage == "Waiting for you" else "") or _last_team_word(t.name)
+		return _state(
+			RED,
+			_("TBO Support is waiting for your answer"),
+			_("Answer the team: {0}").format(summary(asked)) if asked else _("Answer the team's question"),
+		)
+	if t.status == "Pending":
+		if not site_connected():
+			return _state(ORANGE, _("Not sent: this site is not connected to TBO Support"))
+		return _state(ORANGE, _("Sent to TBO Support"))
+	return _state(ORANGE, _(t.stage) if t.stage else _("TBO Support is working on it"))
+
+
+def _plain(ticket) -> frappe._dict:
+	return frappe._dict(ticket.as_dict() if isinstance(ticket, Document) else ticket)
+
+
+def _state(dot: str, line: str, action: str = "", confirm: bool = False, closed: bool = False) -> dict:
+	return {"dot": dot, "line": line, "action": action, "confirm": confirm, "closed": closed}
+
+
+def _last_team_word(ticket: str) -> str:
+	rows = frappe.get_all(
+		"Support Ticket Update",
+		filters={"parent": ticket, "parenttype": TICKET, "kind": "Reply"},
+		fields=["message"],
+		order_by="posted_at desc",
+		limit=1,
+	)
+	return rows[0].message if rows else ""
+
+
+def followed(user: str | None = None) -> list[str]:
+	"""The tickets a colleague raised that this user follows (Phase 14)."""
+	return frappe.get_all(
+		FOLLOWER, filters={"user": user or frappe.session.user, "parenttype": TICKET}, pluck="parent"
+	)
+
+
+def _my_tickets(fields=None, limit: int = 200, filters=None) -> list:
+	"""The user's tickets: the ones they raised, were raised for, or follow."""
+	user = frappe.session.user
+	or_filters = [["owner", "=", user], ["raised_by", "=", user]]
+	following = followed(user)
+	if following:
+		or_filters.append(["name", "in", following])
+	return frappe.get_all(
+		TICKET,
+		filters=filters,
+		or_filters=or_filters,
+		fields=fields or TICKET_FIELDS,
+		order_by="modified desc",
+		limit=limit,
+	)
+
+
+def my_ticket(name: str, follower: bool = False):
+	"""One of the user's own tickets (the one who raised it, or the one it was raised for); with
+	`follower`, also one they follow."""
+	from helpdesk_client.helpdesk_client.doctype.support_ticket.support_ticket import is_follower, is_raiser
+
+	doc = frappe.get_doc(TICKET, name)
+	if not (is_raiser(doc) or (follower and is_follower(doc))):
+		frappe.throw(_("This is not your ticket."), frappe.PermissionError)
+	return doc
+
+
+def ticket_card(ticket) -> dict:
+	"""What the chat shows about its ticket: its name, summary and dot, the record it is about, and
+	whether the user only follows it (then nothing waits for them: the raiser answers)."""
+	t = _plain(ticket)
+	user = frappe.session.user
+	following = bool(t.get("owner") or t.get("raised_by")) and user not in (
+		t.get("owner"),
+		t.get("raised_by"),
+	)
+	card = {"name": t.name, "ticket_id": t.ticket_id, "summary": summary(t.subject), **state(t)}
+	if following:
+		card.update(confirm=False, action="")
+	card["following"] = following
+	card["record"] = (
+		{"doctype": t.ref_doctype, "name": t.ref_docname}
+		if t.get("ref_doctype") and t.get("ref_docname")
+		else None
+	)
+	return card
+
+
+@frappe.whitelist()
+def overview() -> dict:
+	"""The user's tickets (open ones first), the red ones again as actions, and their other chats."""
+	require_user()
+	tickets = _my_tickets()
+	chats = frappe.get_all(
+		CONVERSATION,
+		filters={"user": frappe.session.user},
+		fields=["name", "ticket", "status", "last_message_at", "creation"],
+		order_by="creation desc",
+		limit=300,
+	)
+	by_ticket = {c.ticket: c for c in chats if c.ticket}
+	rows = []
+	for t in tickets:
+		chat = by_ticket.get(t.name)
+		activity = max(get_datetime(t.modified), get_datetime((chat and chat.last_message_at) or t.modified))
+		rows.append({**ticket_card(t), "conversation": chat and chat.name, "last_activity": str(activity)})
+	rows.sort(key=lambda r: r["last_activity"], reverse=True)
+	rows.sort(key=lambda r: r["closed"])  # open ones first, each group newest first
+	return {
+		"tickets": rows,
+		"actions": [r for r in rows if r["dot"] == RED and not r["following"]],
+		"chats": _chats([c for c in chats if not c.ticket]),
+	}
+
+
+def _chats(chats: list) -> list[dict]:
+	"""The chats that did not become tickets, by their first line; an untouched one only while open."""
+	first = {}
+	if chats:
+		for m in frappe.get_all(
+			MESSAGE,
+			filters={
+				"conversation": ["in", [c.name for c in chats]],
+				"direction": "Customer",
+				"text": ["is", "set"],
+			},
+			fields=["conversation", "text"],
+			order_by="creation asc",
+		):
+			first.setdefault(m.conversation, m.text)
+	rows = []
+	for c in chats:
+		is_open = c.status in OPEN_CHAT_STATES
+		if c.name not in first and not is_open:
+			continue
+		rows.append(
+			{
+				"name": c.name,
+				"summary": summary(first.get(c.name)) or _("New chat"),
+				"open": is_open,
+				"last_activity": str(c.last_message_at or c.creation),
+			}
+		)
+	rows.sort(key=lambda r: r["last_activity"], reverse=True)
+	return rows
+
+
+@frappe.whitelist()
+def for_record(doctype: str, docname: str) -> list[dict]:
+	"""The user's open tickets about one record: the Support strip on its form (Phase 14)."""
+	require_user()
+	if not (doctype and docname):
+		return []
+	rows = _my_tickets(filters={"ref_doctype": doctype, "ref_docname": docname}, limit=20)
+	return [card for card in map(ticket_card, rows) if not card["closed"]]
+
+
+def actions_count(user: str | None = None) -> int:
+	"""How many of the user's tickets wait for them (the red button's number)."""
+	user = user or frappe.session.user
+	if user == "Guest":
+		return 0
+	tickets = frappe.get_all(
+		TICKET,
+		or_filters={"owner": user, "raised_by": user},
+		filters={"status": ["!=", "Closed"]},
+		fields=TICKET_FIELDS,
+		limit=200,
+	)
+	return sum(1 for t in tickets if state(t)["dot"] == RED)
+
+
+@frappe.whitelist()
+def ticket_status(ticket: str) -> dict:
+	"""What's the status? Answered here at once, from the ticket TBO Support keeps up to date."""
+	require_user()
+	t = my_ticket(ticket)
+	now = state(t)
+	lines = [now["line"]]
+	if t.stage_message and t.stage_message not in lines:
+		lines.append(t.stage_message)
+	latest = sorted(t.updates or [], key=lambda u: str(u.posted_at or ""))[-1:]
+	facts = [
+		(_("Ticket"), t.name + (f" (#{t.ticket_id})" if t.ticket_id else "")),
+		(_("Stage"), _(t.stage or t.status)),
+		(_("With"), t.handled_by),
+	]
+	if latest:
+		u = latest[0]
+		facts.append(
+			(
+				_("Last update"),
+				"{} · {}: {}".format(
+					formatdate(u.posted_at), u.author_name or _("TBO Support"), summary(u.message or u.stage)
+				),
+			)
+		)
+	if now["action"]:
+		facts.append((_("Needed from you"), now["action"]))
+	return {
+		"direction": "System",
+		"kind": "Status",
+		"text": now["line"],
+		"card": {"title": _("Where your ticket stands"), "lines": lines, "facts": [f for f in facts if f[1]]},
+	}
+
+
+def refresh_for(ticket) -> None:
+	"""The panel, the full page and the red button reload when a ticket changes."""
+	users = {ticket.owner, ticket.raised_by} | {f.user for f in ticket.get("followers") or []}
+	for user in users - {None, "", "Guest"}:
+		frappe.publish_realtime(
+			"helpdesk_client_inbox", {"ticket": ticket.name}, user=user, after_commit=True
+		)
+
+
+def chat_route(ticket: str) -> str:
+	return f"/app/support-chat/{ticket}"
+
+
+def remind_unconfirmed() -> int:
+	"""Daily: a fix waiting for the user's check is brought up again every 3 days, until they answer."""
+	cutoff = add_days(now_datetime(), -REMIND_EVERY_DAYS)
+	reminded = 0
+	for t in frappe.get_all(
+		TICKET,
+		filters={"status": ["!=", "Closed"]},
+		fields=[*TICKET_FIELDS, "confirmation_reminded_at"],
+	):
+		if not state(t)["confirm"]:
+			continue
+		since = t.confirmation_reminded_at or t.last_synced or t.modified
+		if get_datetime(since) > cutoff:
+			continue
+		user = t.raised_by or t.owner
+		if user and frappe.db.exists("User", {"name": user, "enabled": 1}):
+			frappe.get_doc(
+				{
+					"doctype": "Notification Log",
+					"for_user": user,
+					"type": "Alert",
+					"subject": _(
+						"TBO Support resolved {0}. Please check it and confirm it is sorted: {1}"
+					).format(t.name, summary(t.subject)),
+					"document_type": TICKET,
+					"document_name": t.name,
+					"link": chat_route(t.name),
+				}
+			).insert(ignore_permissions=True)
+			reminded += 1
+		frappe.db.set_value(TICKET, t.name, "confirmation_reminded_at", now_datetime(), update_modified=False)
+	return reminded
+
+
+def report_waiting_tickets() -> int:
+	"""Hourly: tickets still Pending an hour after they were raised (TBO Support has not picked them up) are
+	reported once each to this site's System Managers, the people who can connect the site or check its
+	connection."""
+	rows = frappe.get_all(
+		TICKET,
+		filters={
+			"status": "Pending",
+			"creation": ["<=", add_to_date(now_datetime(), hours=-PENDING_REPORT_AFTER_HOURS)],
+			"pending_reported_at": ["is", "not set"],
+		},
+		fields=["name", "subject"],
+		order_by="creation asc",
+		limit=100,
+	)
+	admins = site_admins()
+	if not (rows and admins):
+		return 0  # nobody to tell yet: the next run tries again
+	names = [r.name for r in rows]
+	listed = ", ".join(names[:5])
+	if len(names) > 5:
+		listed = _("{0} and {1} more").format(listed, len(names) - 5)
+	subject = (
+		_("A support ticket has waited over an hour for TBO Support: {0}").format(listed)
+		if len(names) == 1
+		else _("{0} support tickets have waited over an hour for TBO Support: {1}").format(len(names), listed)
+	)
+	reason = (
+		_(
+			"TBO Support has not picked them up. Check this site's connection in HDS Support Settings, or tell TBO Support."
+		)
+		if site_connected()
+		else _(
+			"This site is not connected to TBO Support, so they were not sent. Connect it in HDS Support Settings (Connect to TBO Support)."
+		)
+	)
+	tell(admins, subject, reason, "/app/support-ticket?status=Pending", names[0])
+	for name in names:
+		frappe.db.set_value(TICKET, name, "pending_reported_at", now_datetime(), update_modified=False)
+	return len(names)
+
+
+def site_admins() -> list[str]:
+	"""This site's own System Managers (Administrator too), never TBO Support's users."""
+	from frappe.utils.user import get_users_with_role
+
+	from helpdesk_client.mcp.auth import is_hub_user
+
+	users = ["Administrator", *get_users_with_role("System Manager")]
+	return [u for u in dict.fromkeys(users) if u == "Administrator" or not is_hub_user(u)]
+
+
+def tell(users: list[str], subject: str, message: str, link: str, ticket: str | None = None) -> None:
+	"""One desk notice to each of `users`."""
+	for user in users:
+		frappe.get_doc(
+			{
+				"doctype": "Notification Log",
+				"for_user": user,
+				"type": "Alert",
+				"subject": subject,
+				"email_content": message,
+				"document_type": TICKET if ticket else None,
+				"document_name": ticket,
+				"link": link,
+			}
+		).insert(ignore_permissions=True)

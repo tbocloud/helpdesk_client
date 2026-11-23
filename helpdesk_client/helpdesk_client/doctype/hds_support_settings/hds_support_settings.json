@@ -18,8 +18,14 @@
   "rotation_error",
   "section_access_control",
   "blocked_doctypes",
+  "block_hr_payroll",
   "column_break_acl",
   "allowed_doctypes",
+  "section_write_safety",
+  "site_environment",
+  "approval_key",
+  "column_break_write",
+  "write_doctypes",
   "section_limits",
   "max_list_limit",
   "max_error_log_limit",
@@ -27,9 +33,13 @@
   "max_report_rows",
   "support_portal_section",
   "enable_ticket_raising",
+  "enable_chat",
+  "show_similar_tickets",
+  "fallback_contact_email",
   "column_break_nuxg",
   "save_recording",
   "max_recording_size",
+  "max_recording_minutes",
   "ticket_details",
   "session_replay_section",
   "enable_session_replay",
@@ -117,6 +127,13 @@
    "options": "HDS Blocked DocType"
   },
   {
+   "default": "1",
+   "description": "TBO Support cannot read or change HR and payroll records here: the HR and Payroll modules, the hrms app and Employee. On for sites connected from this version; sites connected before keep reading them until a System Manager ticks this.",
+   "fieldname": "block_hr_payroll",
+   "fieldtype": "Check",
+   "label": "Keep HR and payroll private"
+  },
+  {
    "fieldname": "column_break_acl",
    "fieldtype": "Column Break"
   },
@@ -126,6 +143,37 @@
    "fieldtype": "Table",
    "label": "Allowed DocTypes",
    "options": "HDS Allowed DocType"
+  },
+  {
+   "description": "What TBO Support may change on this site. Every write is checked here, whatever TBO Support asks, and recorded in HDS Change Log.",
+   "fieldname": "section_write_safety",
+   "fieldtype": "Section Break",
+   "label": "Write Safety"
+  },
+  {
+   "default": "Production",
+   "description": "On Production every write from TBO Support needs an approval TBO Support signed for those exact records.",
+   "fieldname": "site_environment",
+   "fieldtype": "Select",
+   "label": "Site Environment",
+   "options": "Production\nUAT\nSandbox"
+  },
+  {
+   "description": "Made when this site is connected to TBO Support; TBO Support signs approved changes with it. Connect again to replace it.",
+   "fieldname": "approval_key",
+   "fieldtype": "Password",
+   "label": "Approval Key"
+  },
+  {
+   "fieldname": "column_break_write",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The doctypes TBO Support may change, and how. Empty: no changes at all. Users, roles, permissions, scripts, system and email settings are never changed, whatever this list says.",
+   "fieldname": "write_doctypes",
+   "fieldtype": "Table",
+   "label": "Write List",
+   "options": "HDS Allowed Write DocType"
   },
   {
    "fieldname": "section_limits",
@@ -173,6 +221,22 @@
    "label": "Enable Ticket Raising"
   },
   {
+   "default": "0",
+   "depends_on": "enable_ticket_raising",
+   "description": "The Support button opens a chat with TBO Support's assistant, which asks the right questions and raises the ticket. Off: the ticket form, as before. TBO Support must have the customer chat switched on too.",
+   "fieldname": "enable_chat",
+   "fieldtype": "Check",
+   "label": "Support Chat"
+  },
+  {
+   "fieldname": "fallback_contact_email",
+   "fieldtype": "Data",
+   "options": "Email",
+   "label": "Fallback Contact Email",
+   "depends_on": "eval:doc.enable_ticket_raising",
+   "description": "Used as the contact email on a ticket when the person raising it has no email address (for example Administrator)."
+  },
+  {
    "fieldname": "ticket_details",
    "fieldtype": "Table",
    "label": "Ticket Details",
@@ -218,7 +282,8 @@
    "fieldtype": "Select",
    "label": "Save Recording",
    "options": "Public\nPrivate",
-   "depends_on": "eval:doc.enable_ticket_raising"
+   "depends_on": "eval:doc.enable_ticket_raising",
+   "default": "Private"
   },
   {
    "depends_on": "enable_ticket_raising",
@@ -244,11 +309,27 @@
    "label": "Support User",
    "default": "support@teambackoffice.com",
    "description": "The user TBO Support (the hub) signs in as on this site. Generate its API keys during registration. Changing it after registration disconnects the hub."
+  },
+  {
+   "default": "3",
+   "description": "A screen recording from the chat stops by itself after this long.",
+   "fieldname": "max_recording_minutes",
+   "fieldtype": "Int",
+   "label": "Longest recording (minutes)",
+   "non_negative": 1
+  },
+  {
+   "default": "1",
+   "depends_on": "enable_chat",
+   "description": "Before a new ticket is raised from the chat, show up to two open tickets from colleagues that look the same, with \"This is my issue, add me to it\". Only their title and status show, never HR or payroll tickets.",
+   "fieldname": "show_similar_tickets",
+   "fieldtype": "Check",
+   "label": "Show similar tickets from colleagues"
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-30 12:00:00.000000",
+ "modified": "2026-11-17 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Helpdesk Client",
  "name": "HDS Support Settings",

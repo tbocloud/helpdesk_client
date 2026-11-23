@@ -1,0 +1,167 @@
+{
+ "actions": [],
+ "autoname": "HDS-CHG-.YYYY.-.#####",
+ "creation": "2026-10-13 12:00:00.000000",
+ "description": "Every write TBO Support made on this site, or tried to make: who approved it, and the old and new values.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "status",
+  "tool",
+  "action",
+  "reference_doctype",
+  "reference_name",
+  "column_break_ref",
+  "ticket",
+  "change_set",
+  "change_item",
+  "approved_by",
+  "approved_at",
+  "environment",
+  "section_values",
+  "old_values",
+  "new_values",
+  "section_result",
+  "error",
+  "duration_ms"
+ ],
+ "fields": [
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Applied\nRefused\nFailed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tool",
+   "fieldtype": "Data",
+   "label": "Tool",
+   "read_only": 1
+  },
+  {
+   "fieldname": "action",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Action",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Document Type",
+   "options": "DocType",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Document",
+   "options": "reference_doctype",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_ref",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "ticket",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Ticket",
+   "read_only": 1
+  },
+  {
+   "fieldname": "change_set",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Change Set",
+   "read_only": 1
+  },
+  {
+   "fieldname": "change_item",
+   "fieldtype": "Data",
+   "label": "Change Item",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Data",
+   "label": "Approved By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_at",
+   "fieldtype": "Datetime",
+   "label": "Approved At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "environment",
+   "fieldtype": "Data",
+   "label": "Site Environment",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_values",
+   "fieldtype": "Section Break",
+   "label": "Values"
+  },
+  {
+   "fieldname": "old_values",
+   "fieldtype": "Code",
+   "label": "Old Values",
+   "options": "JSON",
+   "read_only": 1
+  },
+  {
+   "fieldname": "new_values",
+   "fieldtype": "Code",
+   "label": "New Values",
+   "options": "JSON",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_result",
+   "fieldtype": "Section Break",
+   "label": "Result"
+  },
+  {
+   "fieldname": "error",
+   "fieldtype": "Small Text",
+   "label": "Error",
+   "read_only": 1
+  },
+  {
+   "fieldname": "duration_ms",
+   "fieldtype": "Int",
+   "label": "Duration (ms)",
+   "read_only": 1
+  }
+ ],
+ "in_create": 1,
+ "links": [],
+ "modified": "2026-10-13 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Helpdesk Client",
+ "name": "HDS Change Log",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

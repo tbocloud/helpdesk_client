@@ -55,10 +55,26 @@ class TestStatusNotifications(FrappeTestCase):
 		self.assertIsNotNone(doc.last_synced)
 
 	def test_client_schedules_no_poller(self):
-		"""The outbound poller is gone; the only cron is local replay cleanup."""
+		"""The outbound poller is gone; the crons are local: replay cleanup, the reminder to check a fix
+		and the report of tickets nobody picked up (they write notices here and call nobody)."""
 		events = frappe.get_hooks("scheduler_events", app_name="helpdesk_client")
 		self.assertEqual(
 			dict(events),
-			{"daily": ["helpdesk_client.utils.session_replay.delete_expired_session_replays"]},
+			{
+				"hourly": ["helpdesk_client.inbox.report_waiting_tickets"],
+				"daily": [
+					"helpdesk_client.utils.session_replay.delete_expired_session_replays",
+					"helpdesk_client.inbox.remind_unconfirmed",
+				],
+			},
 			f"client must schedule no poller, found: {events}",
 		)
+
+
+class TestWhoHears(FrappeTestCase):
+	def test_administrators_own_tickets_get_their_notices(self):
+		"""Phase 23 B15: on many sites Administrator is the admin's own sign-in."""
+		from helpdesk_client.utils.notifications import _readers
+
+		doc = frappe._dict(raised_by="Administrator", followers=[frappe._dict(user="Guest")])
+		self.assertEqual(_readers(doc), ["Administrator"])

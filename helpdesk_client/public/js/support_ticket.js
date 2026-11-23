@@ -8,16 +8,70 @@ genie.chunks = [];
 genie.blob = null;
 genie.blobURL = null;
 
+// Where the user is when they ask for help: the page and, on a form, the record.
+genie.capture_context = function () {
+	const route = frappe.get_route() || [];
+	const frm = route[0] === "Form" ? window.cur_frm : null;
+	return {
+		page_route: route.join("/").slice(0, 140),
+		ref_doctype: frm && frm.doctype ? frm.doctype : "",
+		ref_docname: frm && frm.docname && !frm.is_new() ? String(frm.docname) : "",
+	};
+};
+
 genie.SupportTicket = class SupportTicket {
-	constructor() {
+	// opts (Phase 14, from the chat's Send a form instead): prefill {description, files, record}, and
+	// on_raised(name) to open the new ticket's chat instead of a message with a link
+	constructor(opts = {}) {
 		if (!frappe.boot.genie_support_enabled) {
 			frappe.msgprint(__("Ticket raising is not enabled for this site."));
 			return;
 		}
+		if (frappe.boot.genie_support_connected === false) {
+			// a ticket raised here would never reach anyone: say so before the user writes it
+			frappe.msgprint({
+				title: __("Not connected to TBO Support"),
+				indicator: "orange",
+				message: __(
+					"This site is not connected to TBO Support, so a ticket can't be sent from here. Ask your System Manager to connect it (HDS Support Settings, Connect to TBO Support)."
+				),
+			});
+			return;
+		}
+		this.opts = opts;
 		this.init_config();
+		this.context = genie.capture_context();
+		const record = opts.prefill && opts.prefill.record;
+		if (record && record.doctype) {
+			this.context.ref_doctype = record.doctype;
+			this.context.ref_docname = record.name || "";
+		}
 		this.setup_dialog();
 		this.dialog.show();
+		this.prefill(opts.prefill);
 		this.maybe_start_tour();
+	}
+
+	// What the user had typed and attached in the chat goes into the form.
+	prefill(data) {
+		if (!data) return;
+		if (data.description) {
+			this.dialog.set_value(
+				"ticket_description",
+				frappe.utils.escape_html(data.description).replace(/\n/g, "<br>")
+			);
+		}
+		(data.files || []).forEach((f) => {
+			if (f.kind === "image") {
+				this.screenshots.push({ blob: f.blob, name: f.name });
+			} else if (f.kind === "video" && !genie.blob) {
+				genie.blob = f.blob;
+				genie.blobURL = URL.createObjectURL(f.blob);
+				this.dialog.set_df_property("view_recording", "hidden", 0);
+				this.dialog.set_df_property("clear_recording", "hidden", 0);
+			}
+		});
+		if (this.screenshots.length) this.renderScreenshots();
 	}
 
 	setup_dialog() {
@@ -38,11 +92,23 @@ genie.SupportTicket = class SupportTicket {
 					label: __("Description"),
 					fieldtype: "Text Editor",
 					reqd: 1,
+					// what goes with the ticket besides what is typed (Phase 23 B14)
+					description: __(
+						"With the ticket TBO Support gets the page you are on, your roles, your error messages of the last day and this site's app versions."
+					),
 				},
 				...this.replay_fields(),
 				{
 					fieldtype: "Section Break",
 					label: __("Screen Recording"),
+				},
+				{
+					// the voice only when chosen, and what is shared and who can watch it, said first (Phase 23 B11)
+					fieldname: "record_voice",
+					label: __("Also record my voice (microphone)"),
+					fieldtype: "Check",
+					default: 0,
+					description: genie.recording_note(),
 				},
 				{
 					fieldname: "record_screen",
@@ -142,6 +208,8 @@ genie.SupportTicket = class SupportTicket {
 			},
 		});
 
+		// closing the form any way (×, Esc) ends its tour, or the tour's popup stays over the page
+		this.dialog.onhide = () => this.end_tour();
 		this.dialog.$wrapper.find(".modal-dialog").css("z-index", 1);
 		// Session replay must not capture the ticket being written.
 		this.dialog.$wrapper.addClass("genie-no-record");
@@ -194,7 +262,8 @@ genie.SupportTicket = class SupportTicket {
 				fieldname: "attach_session_replay",
 				label: label,
 				fieldtype: "Check",
-				default: 1,
+				// the customer chooses to share it; never ticked for them
+				default: 0,
 				description: description,
 			},
 		];
@@ -212,6 +281,9 @@ genie.SupportTicket = class SupportTicket {
 		if (this.inUpload) return;
 
 		this.inUpload = true;
+		// one id for this ticket, the same when Raise is pressed again after an error: the site then
+		// returns the ticket it raised already instead of a second one
+		this.request_id = this.request_id || genie.new_message_id();
 		let screen_recording = null;
 		if (genie.blob) {
 			frappe.show_alert({
@@ -219,9 +291,14 @@ genie.SupportTicket = class SupportTicket {
 				message: __("Raising ticket. Please wait..."),
 			});
 			const ext = genie.blob.type.startsWith("video/mp4") ? "mp4" : "webm";
-			screen_recording = await genie
-				.UploadFile(genie.blob, `screen-rec-${Date.now()}.${ext}`)
-				.catch(() => null);
+			// uploaded once: a retry sends the same file again
+			if (!this.uploaded_recording || this.uploaded_recording.blob !== genie.blob) {
+				const url = await genie
+					.UploadFile(genie.blob, `screen-rec-${Date.now()}.${ext}`)
+					.catch(() => null);
+				this.uploaded_recording = url ? { blob: genie.blob, url } : null;
+			}
+			screen_recording = this.uploaded_recording && this.uploaded_recording.url;
 			if (!screen_recording) {
 				frappe.show_alert({
 					indicator: "red",
@@ -234,7 +311,9 @@ genie.SupportTicket = class SupportTicket {
 
 		const screenshot_urls = [];
 		for (const shot of this.screenshots) {
-			const url = await genie.UploadFile(shot.blob, shot.name).catch(() => null);
+			shot.url =
+				shot.url || (await genie.UploadFile(shot.blob, shot.name).catch(() => null));
+			const url = shot.url;
 			if (!url) {
 				frappe.show_alert({
 					indicator: "red",
@@ -261,6 +340,10 @@ genie.SupportTicket = class SupportTicket {
 				screenshots: JSON.stringify(screenshot_urls),
 				session_replay: replay_files.replay || null,
 				session_diagnostics: replay_files.diagnostics || null,
+				page_route: this.context.page_route,
+				ref_doctype: this.context.ref_doctype,
+				ref_docname: this.context.ref_docname,
+				client_message_id: this.request_id,
 			},
 			freeze: true,
 			freeze_message: __("Creating ticket..."),
@@ -272,6 +355,11 @@ genie.SupportTicket = class SupportTicket {
 					});
 					this.end_tour();
 					this.dialog.hide();
+					if (this.opts && this.opts.on_raised) {
+						// from the chat: its chat opens at once (Phase 14)
+						this.opts.on_raised(r.message);
+						return;
+					}
 					// No Helpdesk ID yet — support picks the ticket up on its
 					// next cycle and the ID lands on the local record.
 					frappe.msgprint(
@@ -343,8 +431,12 @@ genie.SupportTicket = class SupportTicket {
 		// Fall back to 50MB when the setting is 0/unset — otherwise the cap
 		// is 0 bytes and recording stops on the first chunk.
 		const maxFileSizeMB = frappe.boot.genie_max_file_size || 50;
-		this.maxFileSizeInBytes = maxFileSizeMB * 1024 * 1024;
-		this.sizeWarning = (maxFileSizeMB / 4) * 1024 * 1024;
+		// the site's own upload limit wins: a bigger recording could never be uploaded
+		this.maxFileSizeInBytes = Math.min(
+			maxFileSizeMB * 1024 * 1024,
+			frappe.boot.max_file_size || 25 * 1024 * 1024
+		);
+		this.sizeWarning = this.maxFileSizeInBytes / 4;
 		this.nextWarningSize = this.sizeWarning;
 	}
 
@@ -518,28 +610,11 @@ genie.SupportTicket = class SupportTicket {
 	}
 
 	async captureScreenshot() {
-		// One still frame via the same permission flow as recording.
-		try {
-			const stream = await navigator.mediaDevices.getDisplayMedia(
-				genie.display_media_options()
-			);
-			const video = document.createElement("video");
-			video.srcObject = stream;
-			await video.play();
-			const canvas = document.createElement("canvas");
-			canvas.width = video.videoWidth;
-			canvas.height = video.videoHeight;
-			canvas.getContext("2d").drawImage(video, 0, 0);
-			stream.getTracks().forEach((t) => t.stop());
-			canvas.toBlob((blob) => {
-				if (!blob) return;
-				this.screenshots.push({ blob: blob, name: `screenshot-${Date.now()}.png` });
-				this.renderScreenshots();
-			}, "image/png");
-		} catch (err) {
-			// user cancelled the picker — not an error
-			console.warn(err);
-		}
+		// One still frame via the same permission flow as recording (shared with the chat, Phase 14).
+		const blob = await genie.capture_screenshot().catch(() => null);
+		if (!blob) return; // the user cancelled the picker
+		this.screenshots.push({ blob: blob, name: `screenshot-${Date.now()}.png` });
+		this.renderScreenshots();
 	}
 
 	pickImages() {
@@ -577,11 +652,19 @@ genie.SupportTicket = class SupportTicket {
 	}
 
 	async setupStream() {
+		this.stream = null;
+		this.audio = null;
 		try {
 			this.stream = await navigator.mediaDevices.getDisplayMedia(
 				genie.display_media_options()
 			);
-
+		} catch (err) {
+			console.error(err);
+			return;
+		}
+		// The voice only when the user ticked it; without a microphone the screen is still recorded.
+		if (!this.dialog.get_value("record_voice")) return;
+		try {
 			this.audio = await navigator.mediaDevices.getUserMedia({
 				audio: {
 					echoCancellation: true,
@@ -590,18 +673,22 @@ genie.SupportTicket = class SupportTicket {
 				},
 			});
 		} catch (err) {
-			console.error(err);
+			console.warn("Recording without a microphone:", err && err.name);
+			frappe.show_alert({
+				indicator: "orange",
+				message: __("No microphone: recording the screen without sound."),
+			});
 		}
 	}
 
 	async startRecording() {
 		await this.setupStream();
 
-		if (this.stream && this.audio) {
+		if (this.stream) {
 			genie.chunks = [];
 			this.mixedStream = new MediaStream([
 				...this.stream.getTracks(),
-				...this.audio.getTracks(),
+				...(this.audio ? this.audio.getTracks() : []),
 			]);
 			this.recorder = genie.make_media_recorder(this.mixedStream);
 			this.recorder.ondataavailable = (e) => {

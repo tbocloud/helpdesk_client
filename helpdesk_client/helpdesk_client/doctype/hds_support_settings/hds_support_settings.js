@@ -10,6 +10,14 @@ frappe.ui.form.on("HDS Support Settings", {
 			);
 		} else {
 			frm.dashboard.add_indicator(__("Not registered"), "orange");
+			if (frm.doc.enable_ticket_raising) {
+				frm.dashboard.set_headline(
+					__(
+						"Ticket raising is on, but this site is not connected to TBO Support: users are told a ticket can't be sent until it is."
+					),
+					"orange"
+				);
+			}
 		}
 
 		if (!frm.doc.client_id) {

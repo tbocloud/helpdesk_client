@@ -2,15 +2,40 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe.utils import cint
 
+from helpdesk_client import inbox
+from helpdesk_client.utils import site_connected
+from helpdesk_client.utils.context import signed_in_as_tbo_support
 from helpdesk_client.utils.session_replay import get_replay_bootinfo
 
 
 def set_bootinfo(bootinfo):
 	genie_settings = frappe.get_cached_doc("HDS Support Settings")
 	bootinfo["genie_support_enabled"] = genie_settings.enable_ticket_raising
+	# not connected to TBO Support: the Support button says so instead of taking a ticket nobody collects
+	bootinfo["genie_support_connected"] = site_connected(genie_settings)
+	# the Support button opens the chat (TBO Copilot Phase 5) when this site is paired and it is on
+	bootinfo["genie_chat_enabled"] = bool(
+		genie_settings.enable_ticket_raising
+		and genie_settings.get("enable_chat")
+		and genie_settings.client_id
+	)
+	# TBO Support signed in here (Login to site): the button explains instead of raising a ticket as TBO
+	bootinfo["genie_hub_user"] = signed_in_as_tbo_support()
+	# the red Actions needed button above the Support button (Phase 13)
+	bootinfo["genie_actions_needed"] = (
+		inbox.actions_count()
+		if genie_settings.enable_ticket_raising and not bootinfo["genie_hub_user"]
+		else 0
+	)
 	bootinfo["genie_max_file_size"] = genie_settings.max_recording_size
-	bootinfo["genie_file_type"] = 1 if genie_settings.save_recording == "Private" else 0
+	# a screen recording from the chat stops by itself after this long (Phase 14; 3 minutes unless set)
+	bootinfo["genie_recording_seconds"] = 60 * (cint(genie_settings.get("max_recording_minutes")) or 3)
+	# Recordings and screenshots show the customer's own screens, so they are
+	# always private. The Save Recording setting is kept for older sites but
+	# can no longer make them public.
+	bootinfo["genie_file_type"] = 1
 
 	# Left out entirely when off, so the desk loads none of the recorder.
 	replay = get_replay_bootinfo(genie_settings)

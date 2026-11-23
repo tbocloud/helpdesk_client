@@ -24,9 +24,12 @@ def after_install():
 
 
 def after_uninstall():
-	"""Disable the support user."""
+	"""Disable the support user and revoke the hub's keys."""
+	from helpdesk_client.api import revoke_support_keys
+
 	support_user = get_support_user()
 	if frappe.db.exists("User", support_user):
+		revoke_support_keys()
 		frappe.db.set_value("User", support_user, "enabled", 0)
 		frappe.db.commit()  # install hook: keep each setup step even if a later one fails - nosemgrep
 		print(f"Disabled user {support_user}")
@@ -75,6 +78,9 @@ def _create_default_settings():
 	if not settings.blocked_doctypes:
 		for dt in DEFAULT_BLOCKED_DOCTYPES:
 			settings.append("blocked_doctypes", {"doctype_name": dt})
+
+	# a new connection keeps HR and payroll private until this site's System Manager opens them (Phase 23 B16)
+	settings.block_hr_payroll = 1
 
 	if not settings.max_list_limit:
 		settings.max_list_limit = 100
