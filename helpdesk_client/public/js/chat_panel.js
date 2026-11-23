@@ -11,6 +11,8 @@ frappe.provide("genie");
 genie.SupportChat = class SupportChat {
 	constructor(opts = {}) {
 		if (genie.support_chat && document.body.contains(genie.support_chat.panel)) {
+			// a newer request: the first one, still waiting for the inbox, is dropped
+			genie.support_chat.first = null;
 			if (opts.about) genie.support_chat.about(opts.about);
 			else genie.support_chat.show(opts.tab, opts.ticket);
 			return genie.support_chat;
@@ -22,10 +24,17 @@ genie.SupportChat = class SupportChat {
 		this.build();
 		genie.support_inbox.listen();
 		genie.support_inbox.on(() => this.update());
+		this.first = opts;
 		genie.support_inbox
 			.load()
 			.catch(() => null)
-			.then(() => (opts.about ? this.about(opts.about) : this.show(opts.tab, opts.ticket)));
+			.then(() => {
+				const first = this.first;
+				this.first = null;
+				if (!first) return;
+				if (first.about) this.about(first.about);
+				else this.show(first.tab, first.ticket);
+			});
 		window.addEventListener("resize", () => this.visible() && this.layout());
 		frappe.router.on("change", () => this.visible() && this.layout());
 	}
@@ -104,17 +113,24 @@ genie.SupportChat = class SupportChat {
 		handle.title = __("Drag to resize");
 		handle.addEventListener("pointerdown", (e) => {
 			e.preventDefault();
+			const pointer = e.pointerId;
 			const startX = e.clientX;
 			const startWidth = genie.panel_width();
 			document.body.style.userSelect = "none";
-			const move = (ev) => this.set_width(startWidth + (startX - ev.clientX));
-			const up = () => {
+			const move = (ev) => {
+				if (ev.pointerId === pointer) this.set_width(startWidth + (startX - ev.clientX));
+			};
+			// the pointer that started the drag ends it, also when the browser cancels the gesture
+			const up = (ev) => {
+				if (ev.pointerId !== pointer) return;
 				window.removeEventListener("pointermove", move);
 				window.removeEventListener("pointerup", up);
+				window.removeEventListener("pointercancel", up);
 				document.body.style.userSelect = "";
 			};
 			window.addEventListener("pointermove", move);
 			window.addEventListener("pointerup", up);
+			window.addEventListener("pointercancel", up);
 		});
 		handle.addEventListener("keydown", (e) => {
 			const step = e.shiftKey ? 64 : 16;
@@ -217,6 +233,8 @@ genie.SupportChat = class SupportChat {
 	}
 
 	hide() {
+		// closed before the inbox came in: it does not open again by itself
+		this.first = null;
 		this.panel.style.display = "none";
 		document.body.classList.remove("genie-support-open");
 		this.layout();
@@ -270,6 +288,12 @@ genie.SupportChat = class SupportChat {
 	}
 
 	update() {
+		const tickets = genie.support_inbox.data.tickets;
+		// tickets came in while the Tickets tab waited with none: open the one the picker shows
+		if (this.tab === "tickets" && !this.picked.tickets && tickets.length) {
+			this.picked.tickets = tickets[0].name;
+			this.view.open_ticket(this.picked.tickets);
+		}
 		this.render_top();
 		this.render_actions();
 	}
@@ -378,17 +402,22 @@ genie.PANEL_MIN = 360;
 genie.PANEL_MAX = 640;
 
 genie.panel_width = function () {
-	let width = 420;
-	try {
-		width = parseInt(localStorage.getItem("genie-panel-width"), 10) || 420;
-	} catch (e) {
-		// no storage in this browser: the default width
+	// the width set on this page, else the one this browser remembers
+	let width = genie.panel_width_now;
+	if (!width) {
+		try {
+			width = parseInt(localStorage.getItem("genie-panel-width"), 10);
+		} catch (e) {
+			// no storage in this browser: the default width
+		}
 	}
-	return Math.min(genie.PANEL_MAX, Math.max(genie.PANEL_MIN, width));
+	return Math.min(genie.PANEL_MAX, Math.max(genie.PANEL_MIN, width || 420));
 };
 
 genie.save_panel_width = function (width) {
 	width = Math.round(Math.min(genie.PANEL_MAX, Math.max(genie.PANEL_MIN, width)));
+	// kept for this page as well, for a browser that blocks storage
+	genie.panel_width_now = width;
 	try {
 		localStorage.setItem("genie-panel-width", String(width));
 	} catch (e) {

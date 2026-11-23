@@ -78,3 +78,41 @@ class TestWhoHears(FrappeTestCase):
 
 		doc = frappe._dict(raised_by="Administrator", followers=[frappe._dict(user="Guest")])
 		self.assertEqual(_readers(doc), ["Administrator"])
+
+
+class TestFollowersHearTheStage(FrappeTestCase):
+	def setUp(self):
+		from helpdesk_client.tests.test_hub_api import ensure_user
+
+		self.addCleanup(frappe.db.rollback)
+		self.raiser = ensure_user("stage-notice-raiser@example.com")
+		self.follower = ensure_user("stage-notice-follower@example.com")
+
+	def notices(self, doc, user):
+		return frappe.get_all(
+			"Notification Log", filters={"for_user": user, "document_name": doc.name}, pluck="subject"
+		)
+
+	def test_a_stage_that_waits_for_the_raiser_reaches_the_followers_too(self):
+		doc = frappe.get_doc(
+			{
+				"doctype": "Support Ticket",
+				"subject": "Margins",
+				"description": "<p>x</p>",
+				"raised_by": self.raiser,
+				"status": "Open",
+				"stage": "Working on it",
+				"followers": [{"user": self.follower}],
+			}
+		).insert(ignore_permissions=True)
+
+		# the status stays Open: only the stage turns the ticket red
+		doc.stage, doc.stage_message = "Waiting for you", "Send the invoice number"
+		doc.save(ignore_permissions=True)
+
+		raiser = self.notices(doc, self.raiser)
+		self.assertEqual(len(raiser), 1)  # the one that says what is needed, not the stage one too
+		self.assertIn("needs you", raiser[0])
+		follower = self.notices(doc, self.follower)
+		self.assertEqual(len(follower), 1)
+		self.assertIn("Waiting for you", follower[0])

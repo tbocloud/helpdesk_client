@@ -322,8 +322,10 @@ def remind_unconfirmed() -> int:
 	):
 		if not state(t)["confirm"]:
 			continue
-		since = t.confirmation_reminded_at or t.last_synced or t.modified
-		if get_datetime(since) > cutoff:
+		# the last reminder, or TBO Support's last move when that came later (a fix given again starts over)
+		marks = [get_datetime(m) for m in (t.confirmation_reminded_at, t.last_synced) if m]
+		since = max(marks) if marks else get_datetime(t.modified)
+		if since > cutoff:
 			continue
 		user = t.raised_by or t.owner
 		if user and frappe.db.exists("User", {"name": user, "enabled": 1}):

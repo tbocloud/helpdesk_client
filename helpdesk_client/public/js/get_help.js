@@ -49,11 +49,20 @@ genie.support_strip = async function (frm) {
 	const key = `${doctype}/${name}`;
 	const cached = genie.strip_cache[key];
 	let rows = cached && Date.now() - cached.at < 60000 ? cached.rows : null;
-	if (!rows) {
-		rows = await frappe
+	while (!rows) {
+		// a ticket that changes meanwhile empties the cache: these rows would be old, so ask again
+		const cache = genie.strip_cache;
+		const fresh = await frappe
 			.xcall("helpdesk_client.inbox.for_record", { doctype, docname: name })
-			.catch(() => []);
-		genie.strip_cache[key] = { rows, at: Date.now() };
+			.then(
+				(r) => r || [],
+				() => null
+			);
+		// a failed lookup is not kept: the next refresh asks again
+		if (!fresh) return;
+		if (cache !== genie.strip_cache) continue;
+		cache[key] = { rows: fresh, at: Date.now() };
+		rows = fresh;
 	}
 	// the user may have moved to another record meanwhile
 	if (!rows.length || frm.doctype !== doctype || String(frm.docname) !== name) return;
@@ -78,7 +87,8 @@ genie.support_strip = async function (frm) {
 
 // --- the error message's button -------------------------------------------------------------------
 
-// What the user pressed on a form, so "Submit failed on …" can say so.
+// What the user pressed on a form, so "Submit failed on …" can say so. It holds only while
+// the answer to that save is handled, where Frappe shows its errors; a later one is not about it.
 genie.watch_form_actions = function () {
 	$(document).ajaxSend((e, xhr, settings) => {
 		const url = String((settings && settings.url) || "");
@@ -93,13 +103,20 @@ genie.watch_form_actions = function () {
 		}
 		genie.last_form_action = {
 			action: genie.FORM_ACTIONS.includes(action) ? action : "",
-			at: Date.now(),
+			xhr,
 			route: genie.capture_context().page_route,
 		};
 	});
+	// jQuery says the request is complete after Frappe has handled its answer
+	$(document).ajaxComplete((e, xhr) => {
+		if (genie.last_form_action && genie.last_form_action.xhr === xhr) {
+			genie.last_form_action = null;
+		}
+	});
 };
 
-genie.offer_error_help = function () {
+// last: the save being answered when the message was shown, if any
+genie.offer_error_help = function (last) {
 	const d = frappe.msg_dialog;
 	if (!d || !d.$wrapper) return;
 	d.$wrapper.find(".genie-error-help, .genie-error-note").remove();
@@ -109,9 +126,7 @@ genie.offer_error_help = function () {
 	const error = (d.msg_area ? d.msg_area.text() : "").replace(/\s+/g, " ").trim().slice(0, 500);
 	if (!error) return;
 	const ctx = genie.capture_context();
-	const last = genie.last_form_action;
-	const action =
-		last && Date.now() - last.at < 30000 && last.route === ctx.page_route ? last.action : "";
+	const action = last && last.route === ctx.page_route ? last.action : "";
 	d.add_custom_action(
 		__("Get help with this error"),
 		() => {
@@ -147,10 +162,11 @@ genie.watch_errors = function () {
 	genie.watching_errors = true;
 	const original = frappe.msgprint;
 	frappe.msgprint = function (...args) {
+		const last = genie.last_form_action;
 		const shown = original.apply(this, args);
 		setTimeout(() => {
 			try {
-				genie.offer_error_help();
+				genie.offer_error_help(last);
 			} catch (e) {
 				// the error message itself must never break
 			}

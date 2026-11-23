@@ -48,9 +48,11 @@ class SupportTicket(Document):
 		if now["dot"] == inbox.RED and inbox.state(previous)["dot"] != inbox.RED:
 			# one notice saying what is needed, instead of the status or stage one
 			notify_action_needed(self, now["action"])
+			# followers hear the status or the stage as usual: nothing waits for them (Phase 14)
 			if previous.status != self.status:
-				# the colleagues who follow it hear the status as usual: nothing waits for them (Phase 14)
 				notify_status_change(self, self.status, followers_only=True)
+			elif (previous.stage, previous.stage_message) != (self.stage, self.stage_message):
+				notify_stage_change(self, followers_only=True)
 			return
 		self.notify_status_change(previous)
 		self.notify_stage_change(previous)

@@ -102,6 +102,7 @@ def deregister():
 
 def revoke_support_keys():
 	"""Forget the hub's API keys and approval key, and end its sessions. Pairing again makes fresh keys."""
+	from frappe.sessions import clear_sessions as end_browser_sessions
 	from frappe.utils.password import remove_encrypted_password
 
 	from helpdesk_client.mcp.session import clear_sessions
@@ -111,6 +112,8 @@ def revoke_support_keys():
 	if frappe.db.exists("User", user):
 		frappe.db.set_value("User", user, "api_key", None, update_modified=False)
 		remove_encrypted_password("User", user, "api_secret")
+		# a login link already used opened a desk session, and that session needs no keys
+		end_browser_sessions(user=user, force=True)
 	remove_encrypted_password("HDS Support Settings", "HDS Support Settings", "approval_key")
 	clear_sessions()
 	get_cache().delete_keys("one_time_login:*")
@@ -282,8 +285,11 @@ def connect_to_hub(code: str, hub_url: str | None = None) -> dict:
 
 
 def _forget_unpaired_keys():
-	"""The keys made for a pairing the hub refused must not stay valid."""
+	"""The keys made for a pairing the hub refused must not stay valid, and the site must not look paired."""
 	revoke_support_keys()
+	# the hub may have registered this site (register_connection commits) before it failed;
+	# without its keys that pairing cannot work, so the site shows Connect to TBO Support again
+	frappe.db.set_single_value("HDS Support Settings", {"client_id": "", "contract_active": 0})
 	if not frappe.flags.in_test:
 		# the keys were committed before the hub was called, and the throw that
 		# follows would roll this revocation back; tests roll everything back

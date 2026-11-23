@@ -109,14 +109,20 @@ def _hr_doctype(doctype: str) -> bool:
 	return is_hr_or_payroll(doctype)
 
 
+def _says_hr(text: str) -> bool:
+	"""Whether the text is about pay or leave. Every word counts here, short ones too (wps): words() leaves
+	out those under four letters, which is right for matching but would miss them."""
+	return bool(set(re.findall(r"[^\W_]+", (text or "").lower())) & HR_WORDS)
+
+
 def _is_hr(t) -> bool:
 	# the description too: a title may not say it is about pay or leave
-	said = words(t.subject) | words(html2text(t.get("description") or "", wrap=False))
-	return _hr_doctype(t.ref_doctype) or bool(said & HR_WORDS)
+	said = f"{t.subject or ''} {html2text(t.get('description') or '', wrap=False)}"
+	return _hr_doctype(t.ref_doctype) or _says_hr(said)
 
 
-def _what_the_chat_is_about(doc) -> tuple[set[str], str, str]:
-	"""The words of what the user said and of TBO Support's summary, and the record the chat started on."""
+def _what_the_chat_is_about(doc) -> tuple[str, str, str]:
+	"""What the user said and TBO Support's summary of it, and the record the chat started on."""
 	text = []
 	for m in frappe.get_all(
 		inbox.MESSAGE,
@@ -129,7 +135,7 @@ def _what_the_chat_is_about(doc) -> tuple[set[str], str, str]:
 		elif m.kind == "Summary" and m.card:
 			card = frappe.parse_json(m.card) or {}
 			text += [str(v) for _k, v in card.get("facts") or []]
-	return words(" ".join(text)), doc.get("ref_doctype") or "", doc.get("ref_docname") or ""
+	return " ".join(text), doc.get("ref_doctype") or "", doc.get("ref_docname") or ""
 
 
 def _candidates(user: str) -> list:
@@ -182,10 +188,11 @@ def similar(conversation: str) -> list[dict]:
 
 
 def _matches(doc) -> list:
-	said, ref_doctype, ref_docname = _what_the_chat_is_about(doc)
+	text, ref_doctype, ref_docname = _what_the_chat_is_about(doc)
+	said = words(text)
 	if not said and not ref_doctype:
 		return []
-	if said & HR_WORDS or _hr_doctype(ref_doctype):
+	if _says_hr(text) or _hr_doctype(ref_doctype):
 		return []  # an HR or payroll problem is never matched against colleagues' tickets
 	scored = [(_score(t, said, ref_doctype, ref_docname), t) for t in _candidates(frappe.session.user)]
 	scored = [pair for pair in scored if pair[0] >= MIN_SCORE]

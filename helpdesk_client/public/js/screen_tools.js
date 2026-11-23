@@ -133,8 +133,18 @@ genie.screen_recorder = {
 	// on_done({blob, name, kind, size, seconds}) once the user stops (not when they discard); the voice only
 	// with {voice: true}. True when the recording started; false when it could not (no screen capture, or the
 	// user said no).
-	async start(on_done, { voice: with_voice = false } = {}) {
-		if (this.session) return false;
+	async start(on_done, opts) {
+		// one recording at a time, also while the browser still asks what to share
+		if (this.session || this.starting) return false;
+		this.starting = true;
+		try {
+			return await this.begin(on_done, opts);
+		} finally {
+			this.starting = false;
+		}
+	},
+
+	async begin(on_done, { voice: with_voice = false } = {}) {
 		if (!genie.can_record_screen()) {
 			frappe.msgprint(
 				__("This browser cannot record the screen; you can attach a screenshot instead.")
@@ -162,7 +172,20 @@ genie.screen_recorder = {
 			...display.getVideoTracks(),
 			...(voice ? voice.getAudioTracks() : []),
 		]);
-		const recorder = genie.make_media_recorder(stream);
+		// the browser would not record this stream: nothing stays shared, and the user is told
+		const fail = () => {
+			[display, voice].forEach((st) => st && st.getTracks().forEach((t) => t.stop()));
+			frappe.msgprint(
+				__("This browser cannot record the screen; you can attach a screenshot instead.")
+			);
+			return false;
+		};
+		let recorder;
+		try {
+			recorder = genie.make_media_recorder(stream);
+		} catch (e) {
+			return fail();
+		}
 		const s = {
 			recorder,
 			display,
@@ -170,6 +193,7 @@ genie.screen_recorder = {
 			asked_voice: with_voice,
 			chunks: [],
 			size: 0,
+			biggest: 0,
 			started: Date.now(),
 			on_done,
 		};
@@ -178,11 +202,18 @@ genie.screen_recorder = {
 			if (!e.data || !e.data.size) return;
 			s.chunks.push(e.data);
 			s.size += e.data.size;
-			if (s.size >= this.cap_bytes()) this.stop();
+			s.biggest = Math.max(s.biggest, e.data.size);
+			// stopped early enough that what stopping still hands over fits the upload limit
+			if (s.size + 2 * s.biggest >= this.cap_bytes()) this.stop();
 		};
 		recorder.onstop = () => this.finish(s);
 		display.getVideoTracks()[0].addEventListener("ended", () => this.stop());
-		recorder.start(1000);
+		try {
+			recorder.start(1000);
+		} catch (e) {
+			this.session = null;
+			return fail();
+		}
 		this.show_bar();
 		this.tick = setInterval(() => this.update_bar(), 500);
 		this.changed();
@@ -217,6 +248,16 @@ genie.screen_recorder = {
 			frappe.show_alert({
 				indicator: "orange",
 				message: __("The recording came out empty. Try again."),
+			});
+			return;
+		}
+		// over the upload limit all the same: it could not be attached
+		if (blob.size > this.cap_bytes()) {
+			frappe.show_alert({
+				indicator: "orange",
+				message: __("The recording came out larger than {0}. Record a shorter one.", [
+					genie.format_bytes(this.cap_bytes()),
+				]),
 			});
 			return;
 		}

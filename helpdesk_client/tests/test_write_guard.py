@@ -50,17 +50,22 @@ def text(result) -> str:
 
 def second_connection():
 	"""A connection of its own to this site's database, like a second request at the same moment."""
+	import inspect
+
 	from frappe.database import get_db
 
 	conf = frappe.conf
-	db = get_db(
-		socket=conf.db_socket,
-		host=conf.db_host,
-		port=conf.db_port,
-		user=conf.db_name,
-		password=conf.db_password,
-		cur_db_name=conf.db_name,
-	)
+	login = {
+		"socket": conf.db_socket,
+		"host": conf.db_host,
+		"port": conf.db_port,
+		"user": conf.get("db_user") or conf.db_name,
+		"password": conf.db_password,
+		"cur_db_name": conf.db_name,
+	}
+	# the first Frappe 15 releases take neither socket nor cur_db_name (the user names the database there)
+	accepted = inspect.signature(get_db).parameters
+	db = get_db(**{key: value for key, value in login.items() if key in accepted})
 	db.connect()
 	return db
 
@@ -255,6 +260,17 @@ class TestTheLists(GuardCase):
 		self.assertEqual(frappe.db.count("Error Log"), errors)
 		self.assertEqual([row.status for row in log_rows(self.todo.name)], ["Refused"])
 
+	def test_a_record_written_to_can_still_be_deleted_and_its_log_stays(self):
+		done = execute_tool(
+			"set_value", {"doctype": "ToDo", "name": self.todo.name, "fieldname": "priority", "value": "High"}
+		)
+		self.assertFalse(done["isError"], text(done))
+
+		frappe.delete_doc("ToDo", self.todo.name, ignore_permissions=True)
+
+		self.assertFalse(frappe.db.exists("ToDo", self.todo.name))
+		self.assertEqual([row.status for row in log_rows(self.todo.name)], ["Applied"])
+
 
 class TestCheckChange(GuardCase):
 	def check(self, change):
@@ -402,6 +418,17 @@ class TestApplyChange(GuardCase):
 		result = self.apply(without_item, expect, token)
 
 		self.assertIn("does not cover", text(result))
+		self.assertEqual(frappe.db.get_value("ToDo", self.todo.name, "priority"), "Low")
+
+	def test_an_approval_without_its_values_or_its_item_does_not_cover_a_change(self):
+		# what the hub signs for a set_value: the record and its action, no values
+		token = approval([{"doctype": "ToDo", "name": self.todo.name, "action": "update"}])
+		change, expect = self.update({"priority": "High"}, {"priority": "Low"}, item="")
+		self.assertIn("does not cover", text(self.apply(change, expect, token)))
+
+		# the values approved, but no item: it could be applied again until the approval expires
+		result = self.apply(change, expect, self.signed(change, expect))
+		self.assertIn("must name its change item", text(result))
 		self.assertEqual(frappe.db.get_value("ToDo", self.todo.name, "priority"), "Low")
 
 	def test_a_simultaneous_replay_cannot_take_the_item_while_the_first_apply_holds_it(self):

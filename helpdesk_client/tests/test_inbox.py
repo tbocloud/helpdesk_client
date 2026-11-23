@@ -201,6 +201,19 @@ class TestAFormTicketsChat(ChatCase):
 		with self.assertRaises(frappe.PermissionError):
 			chat.open_ticket(t.name)
 
+	def test_the_one_it_was_raised_for_reads_the_chat_its_maker_opened(self):
+		t = self.form_ticket(raised_by=OTHER)  # USER made it for OTHER, and opens its chat first
+		self.replies.append(hub_says(state="With a person", ticket="0042"))
+		opened = chat.open_ticket(t.name)
+
+		frappe.set_user(OTHER)
+		theirs = chat.open_ticket(t.name)
+
+		self.assertEqual(theirs["conversation"], opened["conversation"])
+		self.assertTrue(theirs["read_only"])
+		with self.assertRaises(frappe.PermissionError):
+			chat.send(opened["conversation"], "me too")
+
 
 class TestTheFixInTheChat(ChatCase):
 	def setUp(self):
@@ -286,6 +299,23 @@ class TestTheNotices(ChatCase):
 		self.assertEqual(len(self.notices(waiting)), before + 1)
 		self.assertIn("Please check it and confirm it is sorted", self.notices(waiting)[-1].subject)
 		self.assertEqual(self.notices(confirmed), [])
+
+	def test_a_fix_given_again_after_a_reminder_waits_3_days_from_the_new_fix(self):
+		frappe.set_user(USER)
+		t = ticket(status="Resolved")
+		frappe.set_user("Administrator")
+		# reminded about the earlier fix 4 days ago; TBO Support moved it to Resolved again yesterday
+		t.db_set(
+			{
+				"confirmation_reminded_at": add_days(now_datetime(), -4),
+				"last_synced": add_days(now_datetime(), -1),
+			}
+		)
+		before = len(self.notices(t))
+
+		inbox.remind_unconfirmed()
+
+		self.assertEqual(len(self.notices(t)), before)
 
 	def test_the_red_button_counts_what_waits_for_the_user(self):
 		frappe.set_user(USER)

@@ -44,6 +44,14 @@ def _delete_error_logs(method: str):
 	frappe.db.commit()  # the rows were committed outside the test's transaction - nosemgrep
 
 
+def block(*doctypes):
+	"""Put doctypes on this site's blocked list (the test's rollback takes them off)."""
+	settings = frappe.get_single("HDS Support Settings")
+	for doctype in doctypes:
+		settings.append("blocked_doctypes", {"doctype_name": doctype})
+	settings.save(ignore_permissions=True)
+
+
 class DiagnosticCase(FrappeTestCase):
 	def setUp(self):
 		self.addCleanup(frappe.db.rollback)
@@ -87,13 +95,13 @@ class TestCodeIdentity(DiagnosticCase):
 
 
 class TestCustomizations(DiagnosticCase):
-	def make_property_setter(self):
+	def make_property_setter(self, doc_type="ToDo", field_name="description"):
 		return frappe.get_doc(
 			{
 				"doctype": "Property Setter",
 				"doctype_or_field": "DocField",
-				"doc_type": "ToDo",
-				"field_name": "description",
+				"doc_type": doc_type,
+				"field_name": field_name,
 				"property": "bold",
 				"value": "1",
 				"property_type": "Check",
@@ -120,6 +128,19 @@ class TestCustomizations(DiagnosticCase):
 		self.assertTrue(is_error)
 		self.assertIn("blocked", text)
 
+	def test_without_doctypes_a_blocked_doctype_is_still_left_out(self):
+		todo = self.make_property_setter()
+		note = self.make_property_setter("Note", "content")
+		block("ToDo", "Custom Field")
+		is_error, text = run("get_customizations")
+		self.assertFalse(is_error, text)
+		data = json.loads(text)
+		names = [row["name"] for row in data["Property Setter"]]
+		self.assertNotIn(todo.name, names)
+		self.assertIn(note.name, names)
+		# a blocked kind of customization is not read at all
+		self.assertIsNone(data["Custom Field"])
+
 
 class TestDeployStatus(DiagnosticCase):
 	def test_errors_since_are_grouped_by_signature(self):
@@ -135,6 +156,30 @@ class TestDeployStatus(DiagnosticCase):
 		self.assertIsInstance(data["scheduler_enabled"], bool)
 		self.assertIsInstance(data["patches"], list)
 
+	def test_errors_about_a_blocked_doctype_are_left_out(self):
+		since = str(add_to_date(now_datetime(), seconds=-1))
+		probe = frappe.generate_hash(length=6)
+		make_error_log(self, f"probe.blocked_{probe}", reference_doctype="ToDo")
+		make_error_log(self, f"probe.open_{probe}")
+		block("ToDo")
+		is_error, text = run("get_deploy_status", since=since)
+		self.assertFalse(is_error, text)
+		top = {row["signature"] for row in json.loads(text)["errors"]["top"]}
+		self.assertIn(f"helpdesk_client | probe.open_{probe} | ValueError: probe failure", top)
+		self.assertNotIn(f"helpdesk_client | probe.blocked_{probe} | ValueError: probe failure", top)
+
+	def test_a_blocked_error_log_leaves_out_only_the_errors(self):
+		block("Error Log")
+		is_error, text = run("get_deploy_status")
+		self.assertFalse(is_error, text)
+		data = json.loads(text)
+		self.assertIsNone(data["errors"])
+		self.assertIsInstance(data["scheduler_enabled"], bool)
+		# and get_error_log is refused outright
+		is_error, text = run("get_error_log")
+		self.assertTrue(is_error)
+		self.assertIn("blocked", text)
+
 
 class TestErrorLogFilters(DiagnosticCase):
 	def test_filters_by_document_and_names_the_app(self):
@@ -149,6 +194,21 @@ class TestErrorLogFilters(DiagnosticCase):
 		self.assertEqual(rows[0]["top_frames"][-1].split(",")[0], 'helpdesk_client/helpdesk_client/probe.py"')
 		# the hub's error watch counts the users an error happened to
 		self.assertEqual(rows[0]["owner"], frappe.db.get_value("Error Log", rows[0]["name"], "owner"))
+
+	def test_errors_about_a_blocked_doctype_stay_here(self):
+		probe = frappe.generate_hash(length=6)
+		make_error_log(
+			self, f"probe.blocked_{probe}", reference_doctype="ToDo", reference_name=f"mcp-{probe}"
+		)
+		make_error_log(self, f"probe.open_{probe}")
+		block("ToDo")
+		is_error, text = run("get_error_log", reference_doctype="ToDo")
+		self.assertTrue(is_error)
+		self.assertIn("blocked", text)
+		# asked for without the doctype, they are left out all the same
+		is_error, text = run("get_error_log", method=probe)
+		self.assertFalse(is_error, text)
+		self.assertEqual([r["method"] for r in json.loads(text)], [f"probe.open_{probe}"])
 
 
 class TestVersionHistory(DiagnosticCase):
@@ -181,3 +241,53 @@ class TestVersionHistory(DiagnosticCase):
 		self.assertEqual(diag.actor_of("Administrator"), "system")
 		self.assertEqual(diag.actor_of("someone@example.com"), "person")
 		self.assertEqual(diag.actor_of("someone@example.com", data_import="DI-0001"), "import")
+
+	def make_ticket(self):
+		return frappe.get_doc(
+			{"doctype": "Support Ticket", "subject": "Version probe", "description": "<p>probe</p>"}
+		).insert(ignore_permissions=True)
+
+	def test_a_change_from_a_data_import_is_an_import(self):
+		ticket = self.make_ticket()
+		ticket.priority = "High"
+		# what Frappe's Data Import puts on each record it writes
+		ticket.flags.updater_reference = {
+			"doctype": "Data Import",
+			"docname": "DI-probe",
+			"label": "via Data Import",
+		}
+		ticket.save(ignore_permissions=True, ignore_version=False)
+		is_error, text = run("get_version_history", doctype="Support Ticket", name=ticket.name)
+		self.assertFalse(is_error, text)
+		self.assertIn("import", [h["actor"] for h in json.loads(text)["history"]])
+		self.assertEqual(diag.import_of({"data_import": "DI-0001"}), "DI-0001")
+		self.assertIsNone(
+			diag.import_of({"updater_reference": {"doctype": "Auto Repeat", "docname": "AR-1"}})
+		)
+
+	def test_fields_the_caller_may_not_read_are_left_out(self):
+		ticket = self.make_ticket()
+		ticket.priority = "High"
+		ticket.category = "Probe"
+		ticket.save(ignore_permissions=True, ignore_version=False)
+		# priority moves to a permission level no role has here; the meta cache is
+		# cleared again once the test is rolled back
+		self.addCleanup(frappe.clear_cache, doctype="Support Ticket")
+		self.addCleanup(frappe.db.rollback)
+		frappe.get_doc(
+			{
+				"doctype": "Property Setter",
+				"doctype_or_field": "DocField",
+				"doc_type": "Support Ticket",
+				"field_name": "priority",
+				"property": "permlevel",
+				"value": "1",
+				"property_type": "Int",
+			}
+		).insert(ignore_permissions=True)
+		frappe.clear_cache(doctype="Support Ticket")
+		is_error, text = run("get_version_history", doctype="Support Ticket", name=ticket.name)
+		self.assertFalse(is_error, text)
+		changed = [c["field"] for h in json.loads(text)["history"] for c in h["changed"]]
+		self.assertIn("category", changed)
+		self.assertNotIn("priority", changed)

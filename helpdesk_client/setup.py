@@ -99,3 +99,39 @@ def create_genie_folder():
 	f.is_folder = 1
 	f.folder = "Home"
 	f.insert(ignore_if_duplicate=True)
+
+
+def make_recordings_private() -> list[str]:
+	"""Recordings and screenshots attached to tickets as public files become private: saving the File with
+	is_private moves it under /private/files, and the ticket's recording link follows. Run once by the
+	v15_0_3 patch and again after every migrate: a file that could not be moved (a permission error on
+	disk, a name already taken) is logged and tried again next time, and never stops a migrate, which on
+	a customer's site is their deploy. Returns the files still public."""
+	files = frappe.get_all(
+		"File",
+		filters={"attached_to_doctype": "Support Ticket", "is_private": 0},
+		fields=["name", "file_url"],
+	)
+	failed = []
+	for row in files:
+		try:
+			doc = frappe.get_doc("File", row.name)
+			doc.is_private = 1
+			doc.save(ignore_permissions=True)
+			if doc.file_url != row.file_url:
+				frappe.db.set_value(
+					"Support Ticket",
+					{"screen_recording": row.file_url},
+					"screen_recording",
+					doc.file_url,
+					update_modified=False,
+				)
+		except FileNotFoundError:
+			continue  # gone from disk: nothing is left that anyone could read
+		except Exception:
+			frappe.db.rollback()  # this file's change, and its move on disk with it
+			frappe.log_error(f"Could not make recording {row.name} private")
+			failed.append(row.name)
+		# each file moved is kept with its record, whatever happens to the next one
+		frappe.db.commit()  # nosemgrep
+	return failed

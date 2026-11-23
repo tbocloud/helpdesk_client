@@ -38,14 +38,18 @@ const genie_ticket = {
 	// The stage banner: where TBO Support is, in the customer's words.
 	render_stage(frm) {
 		const esc = frappe.utils.escape_html;
+		const closing =
+			frm.doc.close_requested && frm.doc.status !== "Closed"
+				? __("Close requested — awaiting confirmation from support.")
+				: "";
 		if (frm.doc.stage) {
 			frm.page.set_indicator(__(frm.doc.stage), this.STAGE_COLORS[frm.doc.stage] || "gray");
 			const message = frm.doc.stage_message ? ` — ${esc(frm.doc.stage_message)}` : "";
-			frm.dashboard.set_headline(`<b>${esc(__(frm.doc.stage))}</b>${message}`);
-		} else if (frm.doc.close_requested && frm.doc.status !== "Closed") {
-			frm.dashboard.set_headline(
-				__("Close requested — awaiting confirmation from support.")
-			);
+			// asked to close: said under the stage, which stays
+			const asked = closing ? `<div>${esc(closing)}</div>` : "";
+			frm.dashboard.set_headline(`<b>${esc(__(frm.doc.stage))}</b>${message}${asked}`);
+		} else if (closing) {
+			frm.dashboard.set_headline(closing);
 		} else if (frm.doc.status === "Pending") {
 			frm.dashboard.set_headline(__("Submitted — support will pick this up shortly."));
 		}
