@@ -265,6 +265,27 @@ class TestVersionHistory(DiagnosticCase):
 			diag.import_of({"updater_reference": {"doctype": "Auto Repeat", "docname": "AR-1"}})
 		)
 
+	def test_a_field_the_doctype_no_longer_has_is_left_out(self):
+		# CodeRabbit on #6: a Version can name a field since removed (a deleted custom field that was
+		# restricted); only fields the caller can read now are shown, so its values stay out
+		ticket = self.make_ticket()
+		frappe.get_doc(
+			{
+				"doctype": "Version",
+				"ref_doctype": "Support Ticket",
+				"docname": ticket.name,
+				"data": json.dumps(
+					{"changed": [["custom_removed_salary", "1000", "2000"], ["category", "a", "b"]]}
+				),
+			}
+		).insert(ignore_permissions=True)
+		is_error, text = run("get_version_history", doctype="Support Ticket", name=ticket.name)
+		self.assertFalse(is_error, text)
+		changed = [c["field"] for h in json.loads(text)["history"] for c in h["changed"]]
+		self.assertIn("category", changed)
+		self.assertNotIn("custom_removed_salary", changed)
+		self.assertNotIn("2000", text)
+
 	def test_fields_the_caller_may_not_read_are_left_out(self):
 		ticket = self.make_ticket()
 		ticket.priority = "High"

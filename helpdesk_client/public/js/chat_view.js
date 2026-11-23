@@ -186,6 +186,7 @@ genie.SupportChatView = class SupportChatView {
 		this.draft = null; // the message being sent, with its id: the same id when it is sent again
 		this.shown = new Set(); // the messages on screen, so one that comes twice shows once
 		this.seq = 0; // which opening of the view is on screen: answers for an earlier one are not shown
+		this.drafts = new Map(); // each chat's unsent words and files, while another chat is open
 		this.build(parent);
 		frappe.realtime.on("helpdesk_client_chat", (data) => {
 			if (
@@ -297,6 +298,7 @@ genie.SupportChatView = class SupportChatView {
 	// Empties the view for what opens next, and returns that opening's number: an answer that comes back
 	// when another one is on screen is dropped.
 	waiting() {
+		this.keep_draft();
 		this.conversation = null;
 		this.ticket = null;
 		this.pending = null;
@@ -386,6 +388,7 @@ genie.SupportChatView = class SupportChatView {
 		this.typing(false);
 		this.conversation = r.conversation || null;
 		this.ticket = r.ticket_state || null;
+		this.restore_draft();
 		this.body.innerHTML = "";
 		this.shown.clear();
 		if (!this.ticket && r.conversation) this.body.appendChild(this.automated_note());
@@ -791,6 +794,28 @@ genie.SupportChatView = class SupportChatView {
 		return r;
 	}
 
+	// What is typed and attached belongs to the chat it was written in: leaving that chat keeps it aside,
+	// and an empty box (and tray) is what the next chat gets. A chat not started yet keeps the shared box.
+	keep_draft() {
+		if (!this.conversation) return;
+		const text = this.input.value || "";
+		if (text.trim() || this.tray.length) {
+			this.drafts.set(this.conversation, { text, tray: this.tray });
+		}
+		this.input.value = "";
+		this.tray = [];
+		this.render_tray();
+	}
+
+	restore_draft() {
+		const kept = this.conversation && this.drafts.get(this.conversation);
+		if (!kept) return;
+		this.drafts.delete(this.conversation);
+		this.input.value = kept.text;
+		this.tray = kept.tray;
+		this.render_tray();
+	}
+
 	// The message's id: the same while the same text and files are sent again after a failure.
 	message_id(text, files) {
 		const key = JSON.stringify([this.conversation, text, files.map((f) => f.file_url)]);
@@ -807,6 +832,7 @@ genie.SupportChatView = class SupportChatView {
 		const seq = this.seq; // the chat this message is for
 		if (this.pending) await this.begin_about();
 		if (seq !== this.seq || !this.conversation) return;
+		const conversation = this.conversation;
 		const items = this.tray.slice(); // the files that go with it
 		let files = [];
 		if (items.length) {
@@ -819,7 +845,7 @@ genie.SupportChatView = class SupportChatView {
 				frappe.show_alert({
 					indicator: "orange",
 					message: __(
-						"Not sent: another chat was opened. Your message is still in the message box."
+						"Not sent: another chat was opened. Your message waits in the chat you wrote it in."
 					),
 				});
 				return;
@@ -841,6 +867,17 @@ genie.SupportChatView = class SupportChatView {
 				? { text, files: JSON.stringify(files), client_message_id }
 				: { text, client_message_id }
 		);
+		if (seq !== this.seq && conversation !== this.conversation) {
+			// another chat is open now: the message's chat keeps its own draft (its files went with it,
+			// or wait there with the words that were not sent); this box is the other chat's
+			const kept = this.drafts.get(conversation) || { text: "", tray: [] };
+			const tray = r ? kept.tray.filter((f) => !items.includes(f)) : kept.tray;
+			const words = r ? kept.text : [text, kept.text.trim()].filter(Boolean).join("\n");
+			if (words.trim() || tray.length) this.drafts.set(conversation, { text: words, tray });
+			else this.drafts.delete(conversation);
+			if (r) this.draft = null;
+			return;
+		}
 		if (r) {
 			this.draft = null;
 			this.tray = this.tray.filter((f) => !items.includes(f));
@@ -857,11 +894,11 @@ genie.SupportChatView = class SupportChatView {
 	// A card's button. True when it went (or the recording started); false and the buttons work again when not.
 	async act(verb, ids = {}) {
 		if (verb === "record") {
+			// a recording already running keeps the chat it was started for: this press only stops it
+			if (genie.screen_recorder.recording()) return this.record();
 			// TBO Support asked for it in this chat: the recording goes to it as soon as the user stops
-			this.awaiting_recording = this.conversation;
-			const started = await this.record();
+			const started = await this.record(this.conversation);
 			if (!started) {
-				this.awaiting_recording = null;
 				this.append({
 					direction: "System",
 					kind: "Text",
@@ -1079,7 +1116,8 @@ genie.SupportChatView = class SupportChatView {
 
 	// True when a recording started (or one was stopped); false when the user cancelled or said no in the
 	// browser's prompt. What is shared and who can watch it is said first, and the voice is off unless chosen.
-	async record() {
+	// asked: the chat that asked for the recording; it is bound to this recording when it starts
+	async record(asked = null) {
 		if (genie.screen_recorder.recording()) {
 			genie.screen_recorder.stop();
 			return true;
@@ -1092,16 +1130,24 @@ genie.SupportChatView = class SupportChatView {
 		}
 		const choice = await genie.recording_choice();
 		if (!choice) return false;
-		return genie.screen_recorder.start((file) => this.recorded(file), choice);
+		return genie.screen_recorder.start((file) => this.recorded(file, asked), choice);
 	}
 
-	recorded(file) {
+	recorded(file, asked) {
 		if (this.opts.reveal) this.opts.reveal();
 		// it goes at once only to the chat that asked for it, while that chat is still open; otherwise it
 		// waits in the tray, to go when the user sends it
-		const asked = this.awaiting_recording;
-		this.awaiting_recording = null;
 		if (asked && asked === this.conversation) return this.post_recording(file);
+		if (asked) {
+			// asked for in a chat that is not open now: it waits in that chat's own draft, never in this one
+			const kept = this.drafts.get(asked) || { text: "", tray: [] };
+			this.drafts.set(asked, { text: kept.text, tray: kept.tray.concat([file]) });
+			frappe.show_alert({
+				indicator: "blue",
+				message: __("The recording waits in the chat that asked for it. Open it to send."),
+			});
+			return;
+		}
 		this.add_to_tray(file);
 	}
 
