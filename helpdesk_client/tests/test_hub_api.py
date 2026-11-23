@@ -15,7 +15,21 @@ from helpdesk_client.support_user import get_support_user
 RAISER = "hub-api-raiser@example.com"
 
 
+# A role with desk access and no permissions of its own: a user with it is a desk user, as the
+# ERP's own staff are, so Frappe gives them Desk User (the role Support tickets and chats are read by).
+DESK_ROLE = "Support Test Desk User"
+
+
+def desk_role() -> str:
+	if not frappe.db.exists("Role", DESK_ROLE):
+		frappe.get_doc({"doctype": "Role", "role_name": DESK_ROLE, "desk_access": 1}).insert(
+			ignore_permissions=True
+		)
+	return DESK_ROLE
+
+
 def ensure_user(email, roles=()):
+	"""A user of the site; with no roles given, a desk user like the ERP's own staff."""
 	if not frappe.db.exists("User", email):
 		frappe.get_doc(
 			{
@@ -23,7 +37,7 @@ def ensure_user(email, roles=()):
 				"email": email,
 				"first_name": email.split("@")[0],
 				"send_welcome_email": 0,
-				"roles": [{"role": r} for r in roles],
+				"roles": [{"role": r} for r in (roles or (desk_role(),))],
 			}
 		).insert(ignore_permissions=True)
 	return email
