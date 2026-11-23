@@ -428,7 +428,15 @@ def claim(change_set: str, item: str) -> None:
 			"""INSERT INTO `tabHDS Change Claim`
 				(`name`, `change_set`, `change_item`, `owner`, `modified_by`, `creation`, `modified`)
 			VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-			(claim_name(change_set, item), change_set, item, frappe.session.user, frappe.session.user, now, now),
+			(
+				claim_name(change_set, item),
+				change_set,
+				item,
+				frappe.session.user,
+				frappe.session.user,
+				now,
+				now,
+			),
 		)
 	except Exception as e:
 		if frappe.db.is_primary_key_violation(e):

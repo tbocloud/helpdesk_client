@@ -85,11 +85,18 @@ def get_meta(doctype: str, **_kwargs) -> str:
 	return frappe.as_json(filtered, indent=2)
 
 
+def _count_field():
+	"""Frappe v16 takes an aggregate as a dict and rejects it as a string; v15 takes the string."""
+	if int(frappe.__version__.split(".")[0]) >= 16:
+		return {"COUNT": "name", "as": "count"}
+	return "count(name) as count"
+
+
 def get_count(doctype: str, filters=None, **_kwargs) -> str:
 	"""Count the documents matching filters that the calling user may read."""
 	frappe.has_permission(doctype, "read", throw=True)
 	# get_list (not db.count) so the user's row-level permissions apply
-	rows = frappe.get_list(doctype, filters=filters, fields=["count(`name`) as count"])
+	rows = frappe.get_list(doctype, filters=filters, fields=[_count_field()])
 	count = rows[0]["count"] if rows else 0
 	return frappe.as_json({"doctype": doctype, "count": count})
 

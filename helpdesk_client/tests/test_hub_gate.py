@@ -139,7 +139,12 @@ class TestPrivateRecordings(FrappeTestCase):
 			if os.path.exists(path):
 				os.remove(path)
 		ticket = frappe.get_doc(
-			{"doctype": "Support Ticket", "subject": "public recording", "description": "x", "status": "Pending"}
+			{
+				"doctype": "Support Ticket",
+				"subject": "public recording",
+				"description": "x",
+				"status": "Pending",
+			}
 		).insert(ignore_permissions=True)
 		file = frappe.get_doc(
 			{
@@ -155,14 +160,17 @@ class TestPrivateRecordings(FrappeTestCase):
 		self.assertTrue(file.file_url.startswith("/files/"))
 
 		with patch(
-			"frappe.log_error", side_effect=AssertionError("the patch logged an error instead of converting the file")
+			"frappe.log_error",
+			side_effect=AssertionError("the patch logged an error instead of converting the file"),
 		):
 			make_recordings_private.execute()
 
 		file.reload()
 		self.assertEqual(file.is_private, 1)
 		self.assertTrue(file.file_url.startswith("/private/files/"))
-		self.assertEqual(frappe.db.get_value("Support Ticket", ticket.name, "screen_recording"), file.file_url)
+		self.assertEqual(
+			frappe.db.get_value("Support Ticket", ticket.name, "screen_recording"), file.file_url
+		)
 
 		# the insert and the move each registered an undo for the test's rollback;
 		# the second would look for a file the first already removed

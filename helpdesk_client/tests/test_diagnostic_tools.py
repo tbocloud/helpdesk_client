@@ -11,7 +11,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, now_datetime
 
-import helpdesk_client.mcp.handler	# noqa: F401  (registers the tool modules)
+import helpdesk_client.mcp.handler  # registers the tool modules
 from helpdesk_client.mcp.tools import diagnostic_tools as diag
 from helpdesk_client.mcp.tools import execute_tool
 from helpdesk_client.support_user import get_support_user
@@ -57,18 +57,28 @@ class TestCodeIdentity(DiagnosticCase):
 		self.assertFalse(is_error, text)
 		app = json.loads(text)[0]
 		repo = frappe.get_app_path("helpdesk_client", "..")
-		git = lambda *args: subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True).stdout.strip()	 # noqa: E731
+
+		def git(*args):
+			return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True).stdout.strip()
+
 		self.assertEqual(app["commit"], git("rev-parse", "HEAD"))
-		self.assertEqual(app["branch"], git("rev-parse", "--abbrev-ref", "HEAD"))
+		# a checkout on no branch (detached HEAD, as in CI) reports no branch
+		branch = git("rev-parse", "--abbrev-ref", "HEAD")
+		self.assertEqual(app["branch"], None if branch == "HEAD" else branch)
 		self.assertIn(app["dirty"], (True, False, None))
-		self.assertTrue(all("@" not in (url or "").split("://")[-1].split("/")[0] for url in app["remotes"].values()))
+		self.assertTrue(
+			all("@" not in (url or "").split("://")[-1].split("/")[0] for url in app["remotes"].values())
+		)
 
 	def test_unknown_apps_are_skipped(self):
 		is_error, text = run("get_code_identity", apps=["no_such_app"])
 		self.assertEqual(json.loads(text), [])
 
 	def test_credentials_never_leave_the_site(self):
-		self.assertEqual(diag.strip_credentials("https://bot:ghp_secret@github.com/org/app.git"), "https://github.com/org/app.git")
+		self.assertEqual(
+			diag.strip_credentials("https://bot:ghp_secret@github.com/org/app.git"),
+			"https://github.com/org/app.git",
+		)
 		self.assertEqual(diag.strip_credentials("git@github.com:org/app.git"), "git@github.com:org/app.git")
 
 	def test_a_slow_git_is_not_waited_for(self):
@@ -97,7 +107,9 @@ class TestCustomizations(DiagnosticCase):
 		data = json.loads(text)
 		self.assertIn(setter.name, [row["name"] for row in data["Property Setter"]])
 		self.assertTrue(set(diag.CUSTOMIZATIONS) <= set(data))
-		is_error, text = run("get_customizations", doctypes=["ToDo"], since=str(add_to_date(now_datetime(), days=1)))
+		is_error, text = run(
+			"get_customizations", doctypes=["ToDo"], since=str(add_to_date(now_datetime(), days=1))
+		)
 		self.assertEqual(json.loads(text)["Property Setter"], [])
 
 	def test_a_blocked_doctype_is_refused_in_a_list_argument(self):

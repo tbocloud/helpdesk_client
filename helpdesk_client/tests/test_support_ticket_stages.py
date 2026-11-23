@@ -187,7 +187,9 @@ class TestNotifications(StageCase):
 		before = frappe.db.count("Notification Log", {"for_user": RAISER, "document_name": doc.name})
 		doc.handled_by = "TBO Copilot"
 		doc.save(ignore_permissions=True)
-		self.assertEqual(frappe.db.count("Notification Log", {"for_user": RAISER, "document_name": doc.name}), before)
+		self.assertEqual(
+			frappe.db.count("Notification Log", {"for_user": RAISER, "document_name": doc.name}), before
+		)
 
 
 class TestContextCapture(StageCase):
@@ -237,6 +239,8 @@ class TestContextCapture(StageCase):
 		doc = make_ticket(raised_by=RAISER)
 		frappe.db.set_value("Support Ticket", doc.name, {"raised_by_email": None, "raised_by_name": None})
 		backfill_raised_by_email.execute()
-		email, full_name = frappe.db.get_value("Support Ticket", doc.name, ["raised_by_email", "raised_by_name"])
+		email, full_name = frappe.db.get_value(
+			"Support Ticket", doc.name, ["raised_by_email", "raised_by_name"]
+		)
 		self.assertEqual(email, RAISER)
 		self.assertEqual(full_name, "stages-raiser")

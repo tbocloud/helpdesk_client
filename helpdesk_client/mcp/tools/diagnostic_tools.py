@@ -66,7 +66,7 @@ def _git_dir(repo: str) -> str | None:
 	git = os.path.join(repo, ".git")
 	if os.path.isdir(git):
 		return git
-	if os.path.isfile(git):	 # a worktree: "gitdir: <path>"
+	if os.path.isfile(git):  # a worktree: "gitdir: <path>"
 		with open(git) as f:  # path is this bench's own app checkout - nosemgrep
 			pointer = f.read().strip()
 		if pointer.startswith("gitdir:"):
@@ -132,7 +132,11 @@ def _from_apps_json(app: str) -> dict:
 	except ValueError:
 		return {}
 	resolution = (apps.get(app) or {}).get("resolution") or {}
-	return {"commit": resolution.get("commit_hash"), "branch": resolution.get("branch"), "source": "apps.json"}
+	return {
+		"commit": resolution.get("commit_hash"),
+		"branch": resolution.get("branch"),
+		"source": "apps.json",
+	}
 
 
 def code_identity(app: str) -> dict:
@@ -189,7 +193,7 @@ def get_customizations(doctypes=None, since=None, limit: int = 100, **_kwargs) -
 				limit_page_length=limit,
 			)
 		except frappe.PermissionError:
-			rows = None	 # the support user may not read this kind; say so instead of failing
+			rows = None  # the support user may not read this kind; say so instead of failing
 		result[doctype] = rows
 	return frappe.as_json(result, indent=2)
 
@@ -306,7 +310,11 @@ register_tool(
 	input_schema={
 		"type": "object",
 		"properties": {
-			"apps": {"type": "array", "items": {"type": "string"}, "description": "Only these apps. Default: all installed apps"},
+			"apps": {
+				"type": "array",
+				"items": {"type": "string"},
+				"description": "Only these apps. Default: all installed apps",
+			},
 		},
 	},
 	handler=get_code_identity,
@@ -320,8 +328,15 @@ register_tool(
 	input_schema={
 		"type": "object",
 		"properties": {
-			"doctypes": {"type": "array", "items": {"type": "string"}, "description": "Only customizations of these doctypes"},
-			"since": {"type": "string", "description": "Only customizations changed at or after this datetime"},
+			"doctypes": {
+				"type": "array",
+				"items": {"type": "string"},
+				"description": "Only customizations of these doctypes",
+			},
+			"since": {
+				"type": "string",
+				"description": "Only customizations changed at or after this datetime",
+			},
 			"limit": {"type": "integer", "description": "Max rows per kind (default 100, at most 500)"},
 		},
 	},
@@ -336,7 +351,10 @@ register_tool(
 	input_schema={
 		"type": "object",
 		"properties": {
-			"since": {"type": "string", "description": "Look at changes at or after this datetime. Default: the last 24 hours"},
+			"since": {
+				"type": "string",
+				"description": "Look at changes at or after this datetime. Default: the last 24 hours",
+			},
 		},
 	},
 	handler=get_deploy_status,

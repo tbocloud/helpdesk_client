@@ -84,7 +84,14 @@ class TestUpdateTicket(HubApiCase):
 	def test_allowed_fields_are_applied_and_the_status_is_mapped(self):
 		result = hub_api.update_ticket(
 			self.ticket.name,
-			{"ticket_id": "0042", "status": "Waiting on Task", "priority": "High", "stage": "Working on it", "owner": "x", "subject": "hacked"},
+			{
+				"ticket_id": "0042",
+				"status": "Waiting on Task",
+				"priority": "High",
+				"stage": "Working on it",
+				"owner": "x",
+				"subject": "hacked",
+			},
 		)
 		self.assertEqual(result["applied"], ["ticket_id", "status_label", "status", "priority", "stage"])
 		self.assertEqual(result["ignored"], ["owner", "subject"])
@@ -106,7 +113,9 @@ class TestUpdateTicket(HubApiCase):
 		self.assertEqual(result["applied"], ["status_label"])
 		self.assertEqual(result["ignored"], ["status"])
 		self.assertEqual(frappe.db.get_value("Support Ticket", self.ticket.name, "status"), "Pending")
-		self.assertEqual(frappe.db.get_value("Support Ticket", self.ticket.name, "status_label"), "Under Review")
+		self.assertEqual(
+			frappe.db.get_value("Support Ticket", self.ticket.name, "status_label"), "Under Review"
+		)
 
 	def test_values_may_arrive_as_a_json_string(self):
 		result = hub_api.update_ticket(self.ticket.name, '{"priority": "Low"}')
@@ -115,8 +124,12 @@ class TestUpdateTicket(HubApiCase):
 
 class TestUpdatesAndReplies(HubApiCase):
 	def test_a_stage_update_is_added_once_and_moves_the_ticket(self):
-		first = hub_api.add_update(self.ticket.name, "TBO-RUN-1:Working on it:1", "Working on it", "We found it")
-		again = hub_api.add_update(self.ticket.name, "TBO-RUN-1:Working on it:1", "Working on it", "We found it")
+		first = hub_api.add_update(
+			self.ticket.name, "TBO-RUN-1:Working on it:1", "Working on it", "We found it"
+		)
+		again = hub_api.add_update(
+			self.ticket.name, "TBO-RUN-1:Working on it:1", "Working on it", "We found it"
+		)
 		self.assertEqual((first["duplicate"], again["duplicate"]), (False, True))
 		self.ticket.reload()
 		self.assertEqual(len(self.ticket.updates), 1)
@@ -141,21 +154,33 @@ class TestUpdatesAndReplies(HubApiCase):
 		self.assertTrue(again["duplicate"])
 		comments = frappe.get_all(
 			"Comment",
-			filters={"reference_doctype": "Support Ticket", "reference_name": self.ticket.name, "comment_type": "Comment"},
+			filters={
+				"reference_doctype": "Support Ticket",
+				"reference_name": self.ticket.name,
+				"comment_type": "Comment",
+			},
 			fields=["name", "owner", "comment_by"],
 		)
 		self.assertEqual(len(comments), 1)
 		self.assertEqual(comments[0].owner, self.support_user)
 		self.assertEqual(comments[0].name, first["comment"])
 		self.ticket.reload()
-		self.assertEqual((self.ticket.updates[0].kind, self.ticket.updates[0].message), ("Reply", "We fixed it."))
+		self.assertEqual(
+			(self.ticket.updates[0].kind, self.ticket.updates[0].message), ("Reply", "We fixed it.")
+		)
 		self.assertIn("Support replied", notifications(self.ticket.name)[0].subject)
 
 
 class TestChanges(HubApiCase):
 	def test_changes_since_a_cursor(self):
 		cursor = str(add_to_date(now_datetime(), seconds=-1))
-		frappe.db.set_value("Support Ticket", self.ticket.name, "modified", add_to_date(now_datetime(), hours=-1), update_modified=False)
+		frappe.db.set_value(
+			"Support Ticket",
+			self.ticket.name,
+			"modified",
+			add_to_date(now_datetime(), hours=-1),
+			update_modified=False,
+		)
 		changed = make_ticket(subject="Changed")
 		changed.customer_confirmation = "Reopened"
 		changed.confirmation_note = "still wrong"

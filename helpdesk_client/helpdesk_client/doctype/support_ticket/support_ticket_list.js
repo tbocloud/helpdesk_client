@@ -23,7 +23,14 @@ frappe.listview_settings["Support Ticket"] = {
 		if (doc.stage) {
 			return [__(doc.stage), colors[doc.stage] || "gray", "stage,=," + doc.stage];
 		}
-		const status_colors = { Pending: "gray", Open: "blue", Replied: "orange", Paused: "yellow", Resolved: "green", Closed: "green" };
+		const status_colors = {
+			Pending: "gray",
+			Open: "blue",
+			Replied: "orange",
+			Paused: "yellow",
+			Resolved: "green",
+			Closed: "green",
+		};
 		return [__(doc.status), status_colors[doc.status] || "gray", "status,=," + doc.status];
 	},
 };
