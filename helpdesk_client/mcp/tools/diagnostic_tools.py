@@ -302,22 +302,27 @@ def import_of(data: dict):
 	return data.get("data_import")
 
 
-def hidden_fields(doctype: str) -> set:
-	"""Fields of `doctype` whose values the calling user may not see: a permission level they
-	lack, or a masked field (Frappe v16)."""
+def readable_fields(doctype: str) -> set:
+	"""Fields of `doctype` whose values the calling user may see: Frappe's standard fields, and the
+	doctype's own fields at a permission level they read that are not masked (Frappe v16). Only what is
+	listed is shown: a field the doctype no longer has, whatever it held, is not."""
+	from frappe.model import default_fields
+
 	meta = frappe.get_meta(doctype)
 	levels = set(meta.get_permlevel_access("read"))
-	hidden = {df.fieldname for df in meta.fields if df.permlevel and df.permlevel not in levels}
+	readable = set(default_fields) | {
+		df.fieldname for df in meta.fields if not df.permlevel or df.permlevel in levels
+	}
 	masked = getattr(meta, "get_masked_fields", None)
 	if masked:
-		hidden.update(df.fieldname for df in masked())
-	return hidden
+		readable -= {df.fieldname for df in masked()}
+	return readable
 
 
 def get_version_history(doctype, name, since=None, limit: int = 20, **_kwargs) -> str:
 	"""Who changed a record and what: each change with its actor (hub, system, import or person)."""
 	frappe.has_permission(doctype, "read", name, throw=True)
-	hidden = hidden_fields(doctype)  # reading the record is not reading every field of it
+	readable = readable_fields(doctype)  # reading the record is not reading every field of it
 	filters = {"ref_doctype": doctype, "docname": name}
 	if since:
 		filters["creation"] = [">=", since]
@@ -342,7 +347,7 @@ def get_version_history(doctype, name, since=None, limit: int = 20, **_kwargs) -
 				"changed": [
 					{"field": change[0], "from": str(change[1])[:200], "to": str(change[2])[:200]}
 					for change in (data.get("changed") or [])
-					if isinstance(change, list | tuple) and len(change) == 3 and change[0] not in hidden
+					if isinstance(change, list | tuple) and len(change) == 3 and change[0] in readable
 				],
 				"rows_added": len(data.get("added") or []),
 				"rows_removed": len(data.get("removed") or []),
