@@ -198,7 +198,7 @@ def _as_dict(row) -> dict:
 
 def error_line(ref_doctype: str, ref_docname: str, shown_error: str, error_action: str) -> str:
 	"""The user's first message when they pressed Get help with this error (Phase 14)."""
-	record = " ".join(filter(None, (ref_doctype, ref_docname)))
+	record = " ".join(part for part in (ref_doctype, ref_docname) if part)
 	if error_action and record:
 		return _("{0} failed on {1}: {2}").format(_(error_action), record, shown_error)
 	if record:
