@@ -86,7 +86,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-11-17 09:00:00.000000",
+ "modified": "2026-11-23 12:30:00.000000",
  "modified_by": "Administrator",
  "module": "Helpdesk Client",
  "name": "Support Conversation",
@@ -101,7 +101,7 @@
   },
   {
    "read": 1,
-   "role": "All"
+   "role": "Desk User"
   }
  ],
  "sort_field": "creation",

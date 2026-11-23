@@ -244,7 +244,8 @@ def for_record(doctype: str, docname: str) -> list[dict]:
 	if not (doctype and docname):
 		return []
 	rows = _my_tickets(filters={"ref_doctype": doctype, "ref_docname": docname}, limit=20)
-	return [card for card in map(ticket_card, rows) if not card["closed"]]
+	cards = [ticket_card(row) for row in rows]
+	return [card for card in cards if not card["closed"]]
 
 
 def actions_count(user: str | None = None) -> int:
