@@ -102,7 +102,7 @@ def deregister():
 
 def revoke_support_keys():
 	"""Forget the hub's API keys and approval key, and end its sessions. Pairing again makes fresh keys."""
-	from frappe.sessions import clear_sessions as end_browser_sessions
+	from frappe.sessions import delete_session
 	from frappe.utils.password import remove_encrypted_password
 
 	from helpdesk_client.mcp.session import clear_sessions
@@ -112,11 +112,27 @@ def revoke_support_keys():
 	if frappe.db.exists("User", user):
 		frappe.db.set_value("User", user, "api_key", None, update_modified=False)
 		remove_encrypted_password("User", user, "api_secret")
-		# a login link already used opened a desk session, and that session needs no keys
-		end_browser_sessions(user=user, force=True)
+		# a login link already used opened a desk session, and that session needs no keys. The sessions are
+		# found with a locking read, which sees what is committed now: a login that committed while this
+		# waited for the user's row (one_time_login holds it) is among them, although this transaction's
+		# first read came before it. delete_session also clears each one from the cache.
+		for sid in _current_sessions(user):
+			delete_session(sid, user=user, reason="TBO Support access revoked")
 	remove_encrypted_password("HDS Support Settings", "HDS Support Settings", "approval_key")
 	clear_sessions()
 	get_cache().delete_keys("one_time_login:*")
+
+
+def _current_sessions(user: str) -> list[str]:
+	"""The user's desk sessions as committed now (a locking read), not as this transaction first saw them."""
+	sessions = frappe.qb.DocType("Sessions")
+	return (
+		frappe.qb.from_(sessions)
+		.select(sessions.sid)
+		.where(sessions.user == user)
+		.for_update()
+		.run(pluck=True)
+	)
 
 
 @frappe.whitelist(methods=["POST"])

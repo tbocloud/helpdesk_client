@@ -113,6 +113,38 @@ class TestKeyRevocation(FrappeTestCase):
 		left = frappe.qb.from_(sessions).select(sessions.sid).where(sessions.user == SUPPORT).run(pluck=True)
 		self.assertEqual(left, [])
 
+	def test_a_session_committed_while_revocation_waited_is_ended_too(self):
+		# CodeRabbit on #6: under REPEATABLE READ a plain read keeps this transaction's first snapshot, so a
+		# login that committed on another connection after it would be missed; revocation reads the
+		# sessions with a locking read, which sees it
+		from helpdesk_client.tests.test_write_guard import second_connection
+
+		sessions = frappe.qb.DocType("Sessions")
+		frappe.qb.from_(sessions).select(sessions.sid).where(sessions.user == SUPPORT).run()  # the snapshot
+		sid = frappe.generate_hash()
+		other = second_connection()
+		try:
+			other.sql(
+				"insert into `tabSessions` (sessiondata, user, lastupdate, sid, status) values (%s, %s, %s, %s, %s)",
+				("{}", SUPPORT, frappe.utils.now(), sid, "Active"),
+			)
+			other.commit()  # the login, committed after this transaction's first read
+			with patch.object(api.frappe.db, "commit"):
+				api.revoke_support_keys()
+			left = (
+				frappe.qb.from_(sessions)
+				.select(sessions.sid)
+				.where(sessions.sid == sid)
+				.for_update()
+				.run(pluck=True)
+			)
+			self.assertEqual(left, [])
+		finally:
+			frappe.db.rollback()  # lets go of the row, so the other connection can remove it
+			other.sql("delete from `tabSessions` where sid = %s", (sid,))
+			other.commit()
+			other.close()
+
 	def test_a_login_link_redeemed_after_revocation_opens_no_session(self):
 		# CodeRabbit on #6: the link is checked against the support user's own row, held until the request
 		# commits, so a login and a revocation at the same moment come one after the other
