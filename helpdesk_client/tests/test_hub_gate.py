@@ -113,6 +113,21 @@ class TestKeyRevocation(FrappeTestCase):
 		left = frappe.qb.from_(sessions).select(sessions.sid).where(sessions.user == SUPPORT).run(pluck=True)
 		self.assertEqual(left, [])
 
+	def test_a_session_is_ended_by_the_id_the_table_holds(self):
+		# Frappe 16 stores session ids hashed and takes the stored id as sid_hash (a plain sid would be
+		# hashed again); Frappe 15 takes it as sid
+		calls = []
+
+		def v16(sid=None, user=None, reason="", *, sid_hash=None):
+			calls.append(("v16", sid, sid_hash))
+
+		def v15(sid=None, user=None, reason=""):
+			calls.append(("v15", sid, None))
+
+		api._end_session(v16, "stored", SUPPORT)
+		api._end_session(v15, "stored", SUPPORT)
+		self.assertEqual(calls, [("v16", None, "stored"), ("v15", "stored", None)])
+
 	def test_a_session_committed_while_revocation_waited_is_ended_too(self):
 		# CodeRabbit on #6: under REPEATABLE READ a plain read keeps this transaction's first snapshot, so a
 		# login that committed on another connection after it would be missed; revocation reads the
