@@ -12,6 +12,8 @@ session with no Authorization header: it is not limited to these endpoints,
 but it holds only while TBO Support's access does (see end_revoked_session).
 """
 
+import hashlib
+
 import frappe
 from frappe import _
 
@@ -87,9 +89,10 @@ def before_request():
 	request = getattr(frappe.local, "request", None)
 	if request is None:
 		return
+	# a desk session is checked whatever headers come with it (a cookie with a junk Authorization header too)
+	end_revoked_session()
 	header = frappe.get_request_header("Authorization")
 	if not header:
-		end_revoked_session()
 		return
 	cmd = (frappe.form_dict or {}).get("cmd")
 	path = f"/api/method/{cmd}" if cmd else request.path
@@ -97,15 +100,27 @@ def before_request():
 	gate(user, path, True)
 
 
+# in a desk session opened by a one-time login link: the fingerprint of the API key it was opened with
+SESSION_KEY = "tbo_support_key"
+
+
+def key_fingerprint(api_key: str | None) -> str | None:
+	"""A fingerprint of the support user's API key, kept in the sessions it opens (never the key itself)."""
+	return hashlib.sha256(api_key.encode()).hexdigest()[:32] if api_key else None
+
+
 def end_revoked_session() -> None:
-	"""A desk session of the support user (opened by a one-time login link) holds only while TBO Support's
-	access does. Revocation takes the user's API key and ends their sessions, but a login request still
-	finishing at that moment can write its session back into Frappe's session cache, which Frappe reads
-	first. Such a session is logged out here on its next request, whatever the cache holds."""
+	"""A desk session of the support user (opened by a one-time login link) holds only while the API key it
+	was opened with does. Revocation takes the key and ends the sessions, but a login request still finishing
+	at that moment can write its session back into Frappe's session cache, which Frappe reads first; and a new
+	pairing makes a new key. So the session carries the fingerprint of its key (api.one_time_login), and a
+	session whose key is gone or replaced, or that carries none, is logged out here, whatever the cache holds."""
 	user = frappe.session.user
 	if not user or user in ("Guest", "Administrator") or user != get_support_user():
 		return
-	if frappe.db.get_value("User", user, "api_key"):
+	current = key_fingerprint(frappe.db.get_value("User", user, "api_key"))
+	opened_with = (getattr(frappe.session, "data", None) or {}).get(SESSION_KEY)
+	if current and opened_with == current:
 		return
 	login_manager = getattr(frappe.local, "login_manager", None)
 	if login_manager:
