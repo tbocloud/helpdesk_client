@@ -240,11 +240,22 @@ def one_time_login(key: str | None = None):
 	# sessions. Holding that row until this request commits puts a login and a revocation one after the
 	# other: a login first has its session ended by the revocation that follows; a revocation first
 	# leaves no key, and the link opens nothing.
-	if not frappe.db.get_value("User", user, "api_key", for_update=True):
+	api_key = frappe.db.get_value("User", user, "api_key", for_update=True)
+	if not api_key:
 		frappe.throw(_("Invalid or expired login key"))
 
 	# Log the user in
 	frappe.local.login_manager.login_as(user)
+
+	# the session belongs to the key it was opened with: once that key is revoked or replaced, the hub gate
+	# ends it, whatever Frappe's session cache holds (hub_gate.end_revoked_session). Saved now: Frappe 16
+	# writes a new session's data again only after a while.
+	from helpdesk_client import hub_gate
+
+	frappe.session.data[hub_gate.SESSION_KEY] = hub_gate.key_fingerprint(api_key)
+	session = getattr(frappe.local, "session_obj", None)
+	if session:
+		session.update(force=True)
 
 	# Redirect to Desk
 	from frappe.utils import get_url

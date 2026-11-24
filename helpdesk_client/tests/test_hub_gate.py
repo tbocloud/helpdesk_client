@@ -67,25 +67,47 @@ class TestKeySessionGate(FrappeTestCase):
 		self.assertIsNone(hub_gate.key_session_user("Bearer some-oauth-token"))
 		self.assertIsNone(hub_gate.key_session_user(None))
 
-	def test_a_desk_session_of_the_support_user_ends_once_its_access_is_revoked(self):
+	def test_a_desk_session_holds_only_while_the_key_it_was_opened_with_does(self):
 		# CodeRabbit on #6: a login still finishing as revocation runs can write its session back into the
-		# cache; on its next request the session is logged out and refused, whatever the cache holds
-		frappe.local.request = MagicMock(path="/app/support-ticket")
+		# cache, and a new pairing makes a new key; the session carries its key's fingerprint and is logged
+		# out on its next request once that key is gone or replaced, whatever headers come with it
+		frappe.local.request = MagicMock(path="/api/method/frappe.auth.get_logged_user")
 		self.addCleanup(lambda: setattr(frappe.local, "request", None))
 		login_manager = MagicMock()
 		self.addCleanup(setattr, frappe.local, "login_manager", getattr(frappe.local, "login_manager", None))
 		frappe.local.login_manager = login_manager
-		frappe.set_user(SUPPORT)
-		with patch.object(hub_gate.frappe, "get_request_header", return_value=None):
-			hub_gate.before_request()  # access holds: the session goes on
-			login_manager.logout.assert_not_called()
-			frappe.db.set_value("User", SUPPORT, "api_key", None, update_modified=False)
-			with self.assertRaises(frappe.AuthenticationError):
-				hub_gate.before_request()
+
+		def desk_session(fingerprint):
+			frappe.set_user(SUPPORT)
+			frappe.session.data[hub_gate.SESSION_KEY] = fingerprint
+
+		def refused(header=None):
+			login_manager.reset_mock()
+			with patch.object(hub_gate.frappe, "get_request_header", return_value=header):
+				with self.assertRaises(frappe.AuthenticationError):
+					hub_gate.before_request()
 			login_manager.logout.assert_called_once()
-			frappe.set_user("Administrator")
+
+		opened_with = hub_gate.key_fingerprint(frappe.db.get_value("User", SUPPORT, "api_key"))
+		desk_session(opened_with)
+		with patch.object(hub_gate.frappe, "get_request_header", return_value=None):
+			hub_gate.before_request()  # its key holds: the session goes on
+		login_manager.logout.assert_not_called()
+
+		desk_session(None)
+		refused()  # a session that carries no key
+		desk_session(opened_with)
+		refused("ignored")  # a cookie with a junk Authorization header is checked all the same
+		make_support_user_with_keys()  # paired again: a new key
+		desk_session(opened_with)
+		refused()
+		frappe.db.set_value("User", SUPPORT, "api_key", None, update_modified=False)  # revoked
+		desk_session(opened_with)
+		refused()
+
+		frappe.set_user("Administrator")
+		with patch.object(hub_gate.frappe, "get_request_header", return_value=None):
 			hub_gate.before_request()  # anyone else's desk session is left alone
-		login_manager.logout.assert_called_once()
 
 	def test_the_hook_reads_cmd_when_present(self):
 		previous_form_dict = frappe.local.form_dict
@@ -199,10 +221,19 @@ class TestKeyRevocation(FrappeTestCase):
 
 		make_support_user_with_keys()
 		cache.set_value("one_time_login:live-link", SUPPORT, expires_in_sec=300)
-		with patch.object(api.frappe.db, "get_value", wraps=frappe.db.get_value) as read:
+		with (
+			patch.object(api.frappe.db, "get_value", wraps=frappe.db.get_value) as read,
+			patch.object(api.frappe.db, "commit"),  # saving the session's data commits
+		):
 			api.one_time_login("live-link")
 		self.assertTrue(read.call_args_list[0].kwargs.get("for_update"))
 		login_manager.login_as.assert_called_once_with(SUPPORT)
+		# the session carries the fingerprint of the key it was opened with (hub_gate.end_revoked_session)
+		self.assertEqual(
+			frappe.session.data.get(hub_gate.SESSION_KEY),
+			hub_gate.key_fingerprint(frappe.db.get_value("User", SUPPORT, "api_key")),
+		)
+		frappe.session.data.pop(hub_gate.SESSION_KEY, None)
 
 	def test_deregister_revokes_the_keys(self):
 		frappe.db.set_single_value("HDS Support Settings", "client_id", "TBO-CONN-2026-00001")

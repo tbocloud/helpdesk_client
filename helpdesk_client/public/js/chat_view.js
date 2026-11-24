@@ -853,12 +853,20 @@ genie.SupportChatView = class SupportChatView {
 		if (this.busy || (!text && !this.tray.length)) return;
 		if (this.tray.some((f) => f.error)) return;
 		const seq = this.seq; // the chat this message is for
+		const before = this.conversation; // null while a chat from Get help has not started yet
+		// the words being sent leave the box now, before the chat starts or the files go up: what is typed
+		// meanwhile is the next message
+		this.input.value = "";
 		if (this.pending) await this.begin_about();
-		if (seq !== this.seq || !this.conversation) return;
+		if (seq !== this.seq || !this.conversation) {
+			// another chat was opened while this one started: the words wait in their own chat's draft;
+			// the chat did not start: they go back into the box, before what was typed since
+			if (seq !== this.seq) this.keep_for(before, { text });
+			else this.back_in_box(text);
+			return;
+		}
 		const conversation = this.conversation;
 		const items = this.tray.slice(); // the files that go with it
-		// the words being sent leave the box now: what is typed while they go is the next message
-		this.input.value = "";
 		let files = [];
 		if (items.length) {
 			this.busy = true;
