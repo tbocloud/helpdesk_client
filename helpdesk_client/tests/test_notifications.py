@@ -55,8 +55,9 @@ class TestStatusNotifications(FrappeTestCase):
 		self.assertIsNotNone(doc.last_synced)
 
 	def test_client_schedules_no_poller(self):
-		"""The outbound poller is gone; the crons are local: replay cleanup, the reminder to check a fix
-		and the report of tickets nobody picked up (they write notices here and call nobody)."""
+		"""The outbound poller is gone; the crons are local: replay cleanup, the reminder to check a fix,
+		the report of tickets nobody picked up (they write notices here and call nobody), and the retry
+		that makes ticket recordings private (it moves files on this site)."""
 		events = frappe.get_hooks("scheduler_events", app_name="helpdesk_client")
 		self.assertEqual(
 			dict(events),
@@ -65,6 +66,7 @@ class TestStatusNotifications(FrappeTestCase):
 				"daily": [
 					"helpdesk_client.utils.session_replay.delete_expired_session_replays",
 					"helpdesk_client.inbox.remind_unconfirmed",
+					"helpdesk_client.setup.make_recordings_private",
 				],
 			},
 			f"client must schedule no poller, found: {events}",
