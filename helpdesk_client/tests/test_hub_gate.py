@@ -109,6 +109,49 @@ class TestKeySessionGate(FrappeTestCase):
 		with patch.object(hub_gate.frappe, "get_request_header", return_value=None):
 			hub_gate.before_request()  # anyone else's desk session is left alone
 
+	def test_a_session_frappe_restores_from_its_cache_is_refused_after_a_new_pairing(self):
+		# CodeRabbit on #6: Frappe's own session (Frappe 15 and 16 alike), opened as login_as opens it, its row
+		# deleted by revocation while a finishing request left its cache entry; Frappe resumes it from that
+		# cache on the next request, and once a new pairing replaced the key the gate logs it out
+		from frappe.sessions import Session
+
+		request = MagicMock(path="/app/support-ticket", headers={}, cookies={})
+		for name, value in (
+			("request", request),
+			("request_ip", "127.0.0.1"),
+			("form_dict", frappe._dict()),
+			("login_manager", MagicMock()),
+		):
+			self.addCleanup(setattr, frappe.local, name, getattr(frappe.local, name, None))
+			setattr(frappe.local, name, value)
+		for name in ("session", "lang"):
+			self.addCleanup(setattr, frappe.local, name, getattr(frappe.local, name, None))
+
+		def resume(sid):
+			request.cookies = {"sid": sid}
+			Session(None, resume=True)  # the next request: Frappe resumes the session
+			self.assertEqual(frappe.session.user, SUPPORT)  # its row is gone: it came from the cache
+
+		with patch.object(frappe.db, "commit"):
+			opened = Session(SUPPORT)  # a desk session, started the way login_as starts it
+			sid = opened.sid
+			self.addCleanup(frappe.cache.hdel, "session", getattr(opened, "sid_hash", None) or sid)
+			key = frappe.db.get_value("User", SUPPORT, "api_key")
+			frappe.session.data[hub_gate.SESSION_KEY] = hub_gate.key_fingerprint(key)
+			opened.update(force=True)  # what one_time_login saves
+			frappe.db.delete("Sessions", {"user": SUPPORT})  # revocation took the row
+
+			with patch.object(hub_gate.frappe, "get_request_header", return_value=None):
+				resume(sid)
+				hub_gate.before_request()  # its key still holds: the restored session goes on
+				frappe.local.login_manager.logout.assert_not_called()
+
+				make_support_user_with_keys()  # paired again: a new key
+				resume(sid)
+				with self.assertRaises(frappe.AuthenticationError):
+					hub_gate.before_request()
+		frappe.local.login_manager.logout.assert_called_once()
+
 	def test_the_hook_reads_cmd_when_present(self):
 		previous_form_dict = frappe.local.form_dict
 		frappe.local.request = MagicMock(path="/api/method/helpdesk_client.api.deregister")
