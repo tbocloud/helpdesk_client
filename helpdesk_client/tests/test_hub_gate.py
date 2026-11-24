@@ -96,11 +96,11 @@ class TestKeySessionGate(FrappeTestCase):
 
 		desk_session(None)
 		refused()  # a session that carries no key
-		desk_session(opened_with)
-		refused("ignored")  # a cookie with a junk Authorization header is checked all the same
-		make_support_user_with_keys()  # paired again: a new key
-		desk_session(opened_with)
+		make_support_user_with_keys()  # paired again: a new key, so the old session's key is gone
+		desk_session(opened_with)  # the old session, as Frappe's cache or database gives it back
 		refused()
+		desk_session(opened_with)
+		refused("ignored")  # its cookie with a junk Authorization header is checked all the same
 		frappe.db.set_value("User", SUPPORT, "api_key", None, update_modified=False)  # revoked
 		desk_session(opened_with)
 		refused()
