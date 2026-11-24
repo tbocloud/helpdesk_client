@@ -116,15 +116,29 @@ def revoke_support_keys():
 		# found with a locking read, which sees what is committed now: a login that committed while this
 		# waited for the user's row (one_time_login holds it) is among them, although this transaction's
 		# first read came before it. delete_session also clears each one from the cache.
-		for sid in _current_sessions(user):
-			delete_session(sid, user=user, reason="TBO Support access revoked")
+		for stored in _current_sessions(user):
+			_end_session(delete_session, stored, user)
 	remove_encrypted_password("HDS Support Settings", "HDS Support Settings", "approval_key")
 	clear_sessions()
 	get_cache().delete_keys("one_time_login:*")
 
 
+def _end_session(delete_session, stored: str, user: str):
+	"""Ends a session by the id the Sessions table holds. Frappe 16 stores session ids hashed and takes
+	that stored form as `sid_hash` (a plain `sid` would be hashed again and match nothing); Frappe 15
+	stores them as they are."""
+	import inspect
+
+	reason = "TBO Support access revoked"
+	if "sid_hash" in inspect.signature(delete_session).parameters:
+		delete_session(sid_hash=stored, user=user, reason=reason)
+	else:
+		delete_session(stored, user=user, reason=reason)
+
+
 def _current_sessions(user: str) -> list[str]:
-	"""The user's desk sessions as committed now (a locking read), not as this transaction first saw them."""
+	"""The user's desk sessions as committed now (a locking read), not as this transaction first saw them;
+	each by the id the Sessions table holds (hashed on Frappe 16)."""
 	sessions = frappe.qb.DocType("Sessions")
 	return (
 		frappe.qb.from_(sessions)
