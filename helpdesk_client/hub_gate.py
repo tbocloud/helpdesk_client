@@ -8,7 +8,8 @@ roles the customer gave it (System Manager on older installs), so without
 this gate the same key would reach every standard REST endpoint on the site.
 A key session (one with an Authorization header) may call only the endpoints
 below. A person who logged in through the one-time link has a normal browser
-session with no Authorization header, and is not gated here.
+session with no Authorization header: it is not limited to these endpoints,
+but it holds only while TBO Support's access does (see end_revoked_session).
 """
 
 import frappe
@@ -88,8 +89,25 @@ def before_request():
 		return
 	header = frappe.get_request_header("Authorization")
 	if not header:
+		end_revoked_session()
 		return
 	cmd = (frappe.form_dict or {}).get("cmd")
 	path = f"/api/method/{cmd}" if cmd else request.path
 	user = key_session_user(header) or frappe.session.user
 	gate(user, path, True)
+
+
+def end_revoked_session() -> None:
+	"""A desk session of the support user (opened by a one-time login link) holds only while TBO Support's
+	access does. Revocation takes the user's API key and ends their sessions, but a login request still
+	finishing at that moment can write its session back into Frappe's session cache, which Frappe reads
+	first. Such a session is logged out here on its next request, whatever the cache holds."""
+	user = frappe.session.user
+	if not user or user in ("Guest", "Administrator") or user != get_support_user():
+		return
+	if frappe.db.get_value("User", user, "api_key"):
+		return
+	login_manager = getattr(frappe.local, "login_manager", None)
+	if login_manager:
+		login_manager.logout()
+	frappe.throw(_("TBO Support's access to this site has ended."), frappe.AuthenticationError)

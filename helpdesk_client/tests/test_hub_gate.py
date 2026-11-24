@@ -67,6 +67,26 @@ class TestKeySessionGate(FrappeTestCase):
 		self.assertIsNone(hub_gate.key_session_user("Bearer some-oauth-token"))
 		self.assertIsNone(hub_gate.key_session_user(None))
 
+	def test_a_desk_session_of_the_support_user_ends_once_its_access_is_revoked(self):
+		# CodeRabbit on #6: a login still finishing as revocation runs can write its session back into the
+		# cache; on its next request the session is logged out and refused, whatever the cache holds
+		frappe.local.request = MagicMock(path="/app/support-ticket")
+		self.addCleanup(lambda: setattr(frappe.local, "request", None))
+		login_manager = MagicMock()
+		self.addCleanup(setattr, frappe.local, "login_manager", getattr(frappe.local, "login_manager", None))
+		frappe.local.login_manager = login_manager
+		frappe.set_user(SUPPORT)
+		with patch.object(hub_gate.frappe, "get_request_header", return_value=None):
+			hub_gate.before_request()  # access holds: the session goes on
+			login_manager.logout.assert_not_called()
+			frappe.db.set_value("User", SUPPORT, "api_key", None, update_modified=False)
+			with self.assertRaises(frappe.AuthenticationError):
+				hub_gate.before_request()
+			login_manager.logout.assert_called_once()
+			frappe.set_user("Administrator")
+			hub_gate.before_request()  # anyone else's desk session is left alone
+		login_manager.logout.assert_called_once()
+
 	def test_the_hook_reads_cmd_when_present(self):
 		previous_form_dict = frappe.local.form_dict
 		frappe.local.request = MagicMock(path="/api/method/helpdesk_client.api.deregister")
