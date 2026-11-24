@@ -388,7 +388,7 @@ genie.SupportChatView = class SupportChatView {
 		this.typing(false);
 		this.conversation = r.conversation || null;
 		this.ticket = r.ticket_state || null;
-		this.restore_draft();
+		if (this.conversation) this.restore_draft(this.conversation);
 		this.body.innerHTML = "";
 		this.shown.clear();
 		if (!this.ticket && r.conversation) this.body.appendChild(this.automated_note());
@@ -795,25 +795,48 @@ genie.SupportChatView = class SupportChatView {
 	}
 
 	// What is typed and attached belongs to the chat it was written in: leaving that chat keeps it aside,
-	// and an empty box (and tray) is what the next chat gets. A chat not started yet keeps the shared box.
+	// with the id of a message on its way (a retry reuses it), and an empty box and tray are what the next
+	// chat gets. A chat not started yet keeps its own draft too, under null.
 	keep_draft() {
-		if (!this.conversation) return;
 		const text = this.input.value || "";
-		if (text.trim() || this.tray.length) {
-			this.drafts.set(this.conversation, { text, tray: this.tray });
+		if (text.trim() || this.tray.length || this.draft) {
+			this.drafts.set(this.conversation || null, {
+				text,
+				tray: this.tray,
+				draft: this.draft,
+			});
 		}
 		this.input.value = "";
 		this.tray = [];
 		this.render_tray();
 	}
 
-	restore_draft() {
-		const kept = this.conversation && this.drafts.get(this.conversation);
+	restore_draft(key = this.conversation) {
+		const kept = this.drafts.get(key || null);
 		if (!kept) return;
-		this.drafts.delete(this.conversation);
+		this.drafts.delete(key || null);
 		this.input.value = kept.text;
 		this.tray = kept.tray;
+		this.draft = kept.draft || null;
 		this.render_tray();
+	}
+
+	// Words and files go back to a chat that is not open now: the words before what its draft holds,
+	// the files into its tray; the id of its message on its way stays.
+	keep_for(conversation, { text = "", items = [] } = {}) {
+		const kept = this.drafts.get(conversation || null) || { text: "", tray: [], draft: null };
+		this.drafts.set(conversation || null, {
+			text: [text, kept.text.trim()].filter(Boolean).join("\n"),
+			tray: kept.tray.concat(items.filter((f) => !kept.tray.includes(f))),
+			draft: kept.draft,
+		});
+	}
+
+	// Words that were not sent go back into the box, before what was typed since.
+	back_in_box(text) {
+		const typed = (this.input.value || "").trim();
+		this.input.value = typed ? `${text}\n${typed}` : text;
+		this.input.focus();
 	}
 
 	// The message's id: the same while the same text and files are sent again after a failure.
@@ -834,6 +857,8 @@ genie.SupportChatView = class SupportChatView {
 		if (seq !== this.seq || !this.conversation) return;
 		const conversation = this.conversation;
 		const items = this.tray.slice(); // the files that go with it
+		// the words being sent leave the box now: what is typed while they go is the next message
+		this.input.value = "";
 		let files = [];
 		if (items.length) {
 			this.busy = true;
@@ -841,7 +866,10 @@ genie.SupportChatView = class SupportChatView {
 			files = await this.upload_tray(items);
 			this.busy = false;
 			if (seq !== this.seq) {
-				// another chat was opened while the files went up: nothing goes to it unasked
+				// another chat was opened while the files went up: nothing goes to it unasked; the words wait
+				// with their chat (its files are in its draft already)
+				if (conversation === this.conversation) this.back_in_box(text);
+				else this.keep_for(conversation, { text });
 				frappe.show_alert({
 					indicator: "orange",
 					message: __(
@@ -852,6 +880,7 @@ genie.SupportChatView = class SupportChatView {
 			}
 			this.typing(false);
 			if (!files) {
+				this.back_in_box(text);
 				frappe.show_alert({
 					indicator: "red",
 					message: __("A file could not be uploaded. Try again."),
@@ -860,7 +889,6 @@ genie.SupportChatView = class SupportChatView {
 			}
 		}
 		const client_message_id = this.message_id(text, files);
-		this.input.value = "";
 		const mine = this.append({ direction: "Customer", kind: "Text", text, files });
 		const r = await this.post(
 			files.length
@@ -868,14 +896,15 @@ genie.SupportChatView = class SupportChatView {
 				: { text, client_message_id }
 		);
 		if (seq !== this.seq && conversation !== this.conversation) {
-			// another chat is open now: the message's chat keeps its own draft (its files went with it,
-			// or wait there with the words that were not sent); this box is the other chat's
-			const kept = this.drafts.get(conversation) || { text: "", tray: [] };
-			const tray = r ? kept.tray.filter((f) => !items.includes(f)) : kept.tray;
-			const words = r ? kept.text : [text, kept.text.trim()].filter(Boolean).join("\n");
-			if (words.trim() || tray.length) this.drafts.set(conversation, { text: words, tray });
-			else this.drafts.delete(conversation);
-			if (r) this.draft = null;
+			// another chat is open now: the message's chat keeps its own draft, never this box. Sent: its
+			// files and message id leave that draft. Not sent: the words wait there, with the same id.
+			if (!r) return this.keep_for(conversation, { text });
+			const kept = this.drafts.get(conversation);
+			if (kept) {
+				kept.tray = kept.tray.filter((f) => !items.includes(f));
+				kept.draft = null;
+				if (!kept.text.trim() && !kept.tray.length) this.drafts.delete(conversation);
+			}
 			return;
 		}
 		if (r) {
@@ -886,9 +915,7 @@ genie.SupportChatView = class SupportChatView {
 		}
 		// not sent: it comes off the chat and back into the box (its files stay in the tray), ready to send again
 		if (mine) mine.remove();
-		const typed = (this.input.value || "").trim();
-		this.input.value = typed ? `${text}\n${typed}` : text;
-		this.input.focus();
+		this.back_in_box(text);
 	}
 
 	// A card's button. True when it went (or the recording started); false and the buttons work again when not.
@@ -1140,8 +1167,7 @@ genie.SupportChatView = class SupportChatView {
 		if (asked && asked === this.conversation) return this.post_recording(file);
 		if (asked) {
 			// asked for in a chat that is not open now: it waits in that chat's own draft, never in this one
-			const kept = this.drafts.get(asked) || { text: "", tray: [] };
-			this.drafts.set(asked, { text: kept.text, tray: kept.tray.concat([file]) });
+			this.keep_for(asked, { items: [file] });
 			frappe.show_alert({
 				indicator: "blue",
 				message: __("The recording waits in the chat that asked for it. Open it to send."),
@@ -1156,10 +1182,10 @@ genie.SupportChatView = class SupportChatView {
 		const url = await genie
 			.UploadFile(file.blob, file.name, { is_private: 1 })
 			.catch(() => null);
-		if (!url) return this.add_to_tray(file);
-		// another chat was opened while it went up: it waits in the tray (uploaded already)
+		if (!url) return this.keep_recording(conversation, file);
+		// another chat was opened while it went up: it waits with its own chat (uploaded already)
 		if (this.conversation !== conversation)
-			return this.add_to_tray({ ...file, file_url: url });
+			return this.keep_recording(conversation, { ...file, file_url: url });
 		const files = [{ file_url: url, file_name: file.name }];
 		const mine = this.append({ direction: "Customer", kind: "Text", text: "", files });
 		const r = await this.post({
@@ -1168,10 +1194,17 @@ genie.SupportChatView = class SupportChatView {
 			client_message_id: genie.new_message_id(),
 		});
 		if (!r) {
-			// not sent: the recording waits in the tray (uploaded already) to go with the next message
+			// not sent: the recording waits with its chat (uploaded already) to go with the next message
 			if (mine) mine.remove();
-			this.add_to_tray({ ...file, file_url: url });
+			this.keep_recording(conversation, { ...file, file_url: url });
 		}
+	}
+
+	// A recording that could not go yet waits with the chat that asked for it: in the tray while that chat
+	// is open, in its draft while another one is.
+	keep_recording(conversation, file) {
+		if (conversation === this.conversation) return this.add_to_tray(file);
+		this.keep_for(conversation, { items: [file] });
 	}
 
 	// --- Get help on a form (Phase 14) ---------------------------------------------------------------
@@ -1180,6 +1213,7 @@ genie.SupportChatView = class SupportChatView {
 	start_about(record) {
 		this.waiting();
 		this.typing(false);
+		this.restore_draft(null); // what was written for a chat not started yet
 		this.pending = { record };
 		this.render_about();
 		this.foot.hidden = false;
@@ -1281,6 +1315,7 @@ genie.SupportChatView = class SupportChatView {
 		const carried = this.tray.filter(
 			(f) => !f.error && (f.kind === "image" || f.kind === "video")
 		);
+		const conversation = this.conversation; // the chat the form came from
 		new genie.SupportTicket({
 			prefill: {
 				description: (this.input.value || "").trim(),
@@ -1288,13 +1323,26 @@ genie.SupportChatView = class SupportChatView {
 				record: this.pending ? this.pending.record : null,
 			},
 			on_raised: (name) => {
-				this.input.value = "";
-				this.tray = this.tray.filter((f) => !carried.includes(f));
-				this.render_tray();
+				if (this.conversation === conversation) {
+					this.input.value = "";
+					this.tray = this.tray.filter((f) => !carried.includes(f));
+					this.render_tray();
+				} else {
+					// the form was finished while another chat was open: only its own chat's draft lets go
+					// of what went with it, and that other chat stays as it is
+					const kept = this.drafts.get(conversation || null);
+					if (kept) {
+						kept.text = "";
+						kept.tray = kept.tray.filter((f) => !carried.includes(f));
+						if (!kept.tray.length) this.drafts.delete(conversation || null);
+					}
+				}
 				genie.support_inbox
 					.load()
 					.catch(() => null)
-					.then(() => this.pick_ticket(name));
+					.then(() => {
+						if (this.conversation === conversation) this.pick_ticket(name);
+					});
 			},
 		});
 	}

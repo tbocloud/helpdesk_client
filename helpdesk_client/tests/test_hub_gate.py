@@ -113,6 +113,30 @@ class TestKeyRevocation(FrappeTestCase):
 		left = frappe.qb.from_(sessions).select(sessions.sid).where(sessions.user == SUPPORT).run(pluck=True)
 		self.assertEqual(left, [])
 
+	def test_a_login_link_redeemed_after_revocation_opens_no_session(self):
+		# CodeRabbit on #6: the link is checked against the support user's own row, held until the request
+		# commits, so a login and a revocation at the same moment come one after the other
+		from helpdesk_client.utils import get_cache
+
+		login_manager = MagicMock()
+		self.addCleanup(setattr, frappe.local, "login_manager", getattr(frappe.local, "login_manager", None))
+		frappe.local.login_manager = login_manager
+		cache = get_cache()
+		cache.set_value("one_time_login:revoked-link", SUPPORT, expires_in_sec=300)
+		with patch.object(api.frappe.db, "commit"):
+			api.revoke_support_keys()
+		cache.set_value("one_time_login:revoked-link", SUPPORT, expires_in_sec=300)
+		with self.assertRaises(frappe.ValidationError):
+			api.one_time_login("revoked-link")
+		login_manager.login_as.assert_not_called()
+
+		make_support_user_with_keys()
+		cache.set_value("one_time_login:live-link", SUPPORT, expires_in_sec=300)
+		with patch.object(api.frappe.db, "get_value", wraps=frappe.db.get_value) as read:
+			api.one_time_login("live-link")
+		self.assertTrue(read.call_args_list[0].kwargs.get("for_update"))
+		login_manager.login_as.assert_called_once_with(SUPPORT)
+
 	def test_deregister_revokes_the_keys(self):
 		frappe.db.set_single_value("HDS Support Settings", "client_id", "TBO-CONN-2026-00001")
 		with patch.object(api.frappe.db, "commit"), patch.object(api, "_require_support_user"):

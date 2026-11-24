@@ -206,6 +206,13 @@ def one_time_login(key: str | None = None):
 	# Delete the key so it can't be reused
 	cache.delete_value(cache_key)
 
+	# Revocation (revoke_support_keys) clears this user's API key on the same row before it ends their
+	# sessions. Holding that row until this request commits puts a login and a revocation one after the
+	# other: a login first has its session ended by the revocation that follows; a revocation first
+	# leaves no key, and the link opens nothing.
+	if not frappe.db.get_value("User", user, "api_key", for_update=True):
+		frappe.throw(_("Invalid or expired login key"))
+
 	# Log the user in
 	frappe.local.login_manager.login_as(user)
 
