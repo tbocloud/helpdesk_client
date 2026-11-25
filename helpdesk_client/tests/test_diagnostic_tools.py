@@ -291,8 +291,8 @@ class TestVersionHistory(DiagnosticCase):
 		ticket.priority = "High"
 		ticket.category = "Probe"
 		ticket.save(ignore_permissions=True, ignore_version=False)
-		# priority moves to a permission level no role has here; the meta cache is
-		# cleared again once the test is rolled back
+		# priority moves to a permission level no role has here (Recent Errors uses 1, for
+		# System Managers); the meta cache is cleared again once the test is rolled back
 		self.addCleanup(frappe.clear_cache, doctype="Support Ticket")
 		self.addCleanup(frappe.db.rollback)
 		frappe.get_doc(
@@ -302,7 +302,7 @@ class TestVersionHistory(DiagnosticCase):
 				"doc_type": "Support Ticket",
 				"field_name": "priority",
 				"property": "permlevel",
-				"value": "1",
+				"value": "2",
 				"property_type": "Int",
 			}
 		).insert(ignore_permissions=True)
