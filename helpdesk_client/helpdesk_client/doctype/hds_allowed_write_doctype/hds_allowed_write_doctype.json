@@ -1,0 +1,56 @@
+{
+ "actions": [],
+ "creation": "2026-10-13 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "doctype_name",
+  "may_update",
+  "may_create",
+  "may_submit_cancel"
+ ],
+ "fields": [
+  {
+   "fieldname": "doctype_name",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "DocType",
+   "options": "DocType",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "may_update",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "May Update"
+  },
+  {
+   "default": "0",
+   "fieldname": "may_create",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "May Create"
+  },
+  {
+   "default": "0",
+   "description": "Copilot's corrections never submit or cancel; this is for approved requests that do.",
+   "fieldname": "may_submit_cancel",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "May Submit and Cancel"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-13 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Helpdesk Client",
+ "name": "HDS Allowed Write DocType",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

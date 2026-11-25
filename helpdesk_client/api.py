@@ -12,13 +12,13 @@ from helpdesk_client.support_user import get_support_user
 
 @frappe.whitelist(allow_guest=True)  # Hub daily ping runs unauthenticated; returns no secrets - nosemgrep
 def health_check():
-	"""Health check endpoint - used by Hub's daily ping."""
+	"""Health check endpoint - used by Hub's daily ping.
+
+	Says only whether support is enabled. The client id is not returned, so a
+	guest cannot learn which hub connection this site belongs to.
+	"""
 	settings = frappe.get_single("HDS Support Settings")
-	return {
-		"status": "ok" if settings.enabled else "disabled",
-		"site": frappe.local.site,
-		"client_id": settings.client_id or "",
-	}
+	return {"status": "ok" if settings.enabled else "disabled"}
 
 
 def _require_support_user():
@@ -31,7 +31,7 @@ def _require_support_user():
 		)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def register_connection(hub_url: str | None = None, client_id: str | None = None):
 	"""Hub-initiated connection handshake.
 
@@ -66,23 +66,27 @@ def register_connection(hub_url: str | None = None, client_id: str | None = None
 	settings.save(ignore_permissions=True)
 	frappe.db.commit()  # the Hub reads the reply as confirmation, so persist first - nosemgrep
 
+	from helpdesk_client.hub_api import capabilities_info
+
 	return {
 		"status": "registered",
 		"site": frappe.local.site,
 		"client_id": client_id,
 		# the Hub stores this so it knows which user's actions are its own
 		"support_user": get_support_user(),
+		# and what this client can do, so it picks the hub_api path when it can
+		**capabilities_info(),
 	}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def deregister():
 	"""Hub-initiated deregistration.
 
 	Authenticated via Token auth. Clears client_id and contract_active so the
-	customer site stops reporting itself as paired with a Hub. Does NOT revoke
-	the API keys - the customer admin can do that via User -> API Access if
-	they want to fully cut off Hub access.
+	customer site stops reporting itself as paired with a Hub, and revokes the
+	hub's API keys, so a deregistered site is really cut off: the keys used to
+	stay valid, and the daily health check reconnected the site by itself.
 	"""
 	_require_support_user()
 
@@ -90,12 +94,62 @@ def deregister():
 	settings.client_id = ""
 	settings.contract_active = 0
 	settings.save(ignore_permissions=True)
+	revoke_support_keys()
 	frappe.db.commit()  # the Hub reads the reply as confirmation, so persist first - nosemgrep
 
 	return {"status": "deregistered", "site": frappe.local.site}
 
 
-@frappe.whitelist()
+def revoke_support_keys():
+	"""Forget the hub's API keys and approval key, and end its sessions. Pairing again makes fresh keys."""
+	from frappe.sessions import delete_session
+	from frappe.utils.password import remove_encrypted_password
+
+	from helpdesk_client.mcp.session import clear_sessions
+	from helpdesk_client.utils import get_cache
+
+	user = get_support_user()
+	if frappe.db.exists("User", user):
+		frappe.db.set_value("User", user, "api_key", None, update_modified=False)
+		remove_encrypted_password("User", user, "api_secret")
+		# a login link already used opened a desk session, and that session needs no keys. The sessions are
+		# found with a locking read, which sees what is committed now: a login that committed while this
+		# waited for the user's row (one_time_login holds it) is among them, although this transaction's
+		# first read came before it. delete_session also clears each one from the cache.
+		for stored in _current_sessions(user):
+			_end_session(delete_session, stored, user)
+	remove_encrypted_password("HDS Support Settings", "HDS Support Settings", "approval_key")
+	clear_sessions()
+	get_cache().delete_keys("one_time_login:*")
+
+
+def _end_session(delete_session, stored: str, user: str):
+	"""Ends a session by the id the Sessions table holds. Frappe 16 stores session ids hashed and takes
+	that stored form as `sid_hash` (a plain `sid` would be hashed again and match nothing); Frappe 15
+	stores them as they are."""
+	import inspect
+
+	reason = "TBO Support access revoked"
+	if "sid_hash" in inspect.signature(delete_session).parameters:
+		delete_session(sid_hash=stored, user=user, reason=reason)
+	else:
+		delete_session(stored, user=user, reason=reason)
+
+
+def _current_sessions(user: str) -> list[str]:
+	"""The user's desk sessions as committed now (a locking read), not as this transaction first saw them;
+	each by the id the Sessions table holds (hashed on Frappe 16)."""
+	sessions = frappe.qb.DocType("Sessions")
+	return (
+		frappe.qb.from_(sessions)
+		.select(sessions.sid)
+		.where(sessions.user == user)
+		.for_update()
+		.run(pluck=True)
+	)
+
+
+@frappe.whitelist(methods=["POST"])
 def rotate_credentials(new_api_key: str | None = None, new_api_secret: str | None = None):
 	"""Hub-initiated credential rotation.
 
@@ -126,6 +180,7 @@ def rotate_credentials(new_api_key: str | None = None, new_api_secret: str | Non
 @frappe.whitelist()
 def get_support_status():
 	"""Get current support status for the site admin dashboard."""
+	frappe.only_for("System Manager")
 	settings = frappe.get_single("HDS Support Settings")
 	return {
 		"enabled": settings.enabled,
@@ -138,7 +193,7 @@ def get_support_status():
 	}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def generate_login_url():
 	"""Generate a one-time login URL for the support user.
 
@@ -181,8 +236,26 @@ def one_time_login(key: str | None = None):
 	# Delete the key so it can't be reused
 	cache.delete_value(cache_key)
 
+	# Revocation (revoke_support_keys) clears this user's API key on the same row before it ends their
+	# sessions. Holding that row until this request commits puts a login and a revocation one after the
+	# other: a login first has its session ended by the revocation that follows; a revocation first
+	# leaves no key, and the link opens nothing.
+	api_key = frappe.db.get_value("User", user, "api_key", for_update=True)
+	if not api_key:
+		frappe.throw(_("Invalid or expired login key"))
+
 	# Log the user in
 	frappe.local.login_manager.login_as(user)
+
+	# the session belongs to the key it was opened with: once that key is revoked or replaced, the hub gate
+	# ends it, whatever Frappe's session cache holds (hub_gate.end_revoked_session). Saved now: Frappe 16
+	# writes a new session's data again only after a while.
+	from helpdesk_client import hub_gate
+
+	frappe.session.data[hub_gate.SESSION_KEY] = hub_gate.key_fingerprint(api_key)
+	session = getattr(frappe.local, "session_obj", None)
+	if session:
+		session.update(force=True)
 
 	# Redirect to Desk
 	from frappe.utils import get_url
@@ -198,6 +271,8 @@ def connect_to_hub(code: str, hub_url: str | None = None) -> dict:
 	then registers this site the usual way (hub_url + client_id). This is the
 	only call this site makes to the hub; everything after is hub-initiated.
 	"""
+	import secrets
+
 	import requests
 
 	from helpdesk_client.setup import _create_support_user
@@ -218,6 +293,10 @@ def connect_to_hub(code: str, hub_url: str | None = None) -> dict:
 
 	settings.qcs_hub_url = hub_url
 	settings.enabled = 1
+	# made here, by this site's System Manager, never by the hub's own key: TBO
+	# Support signs approved changes with it, and this site checks each signature
+	approval_key = secrets.token_urlsafe(32)
+	settings.approval_key = approval_key
 	settings.save(ignore_permissions=True)
 	_create_support_user()
 	support_user = get_support_user()
@@ -239,15 +318,30 @@ def connect_to_hub(code: str, hub_url: str | None = None) -> dict:
 				"api_secret": api_secret,
 				"client_app": "helpdesk_client",
 				"support_user": support_user,
+				"approval_key": approval_key,
 			},
 			timeout=60,
 		)
 	except requests.RequestException as e:
+		_forget_unpaired_keys()
 		frappe.throw(_("Couldn't reach {0}: {1}").format(hub_url, str(e)[:200]))
 
 	if response.status_code != 200:
+		_forget_unpaired_keys()
 		frappe.throw(_("TBO Support refused the connection: {0}").format(_hub_error(response)))
 	return {"status": "connected", "hub_url": hub_url}
+
+
+def _forget_unpaired_keys():
+	"""The keys made for a pairing the hub refused must not stay valid, and the site must not look paired."""
+	revoke_support_keys()
+	# the hub may have registered this site (register_connection commits) before it failed;
+	# without its keys that pairing cannot work, so the site shows Connect to TBO Support again
+	frappe.db.set_single_value("HDS Support Settings", {"client_id": "", "contract_active": 0})
+	if not frappe.flags.in_test:
+		# the keys were committed before the hub was called, and the throw that
+		# follows would roll this revocation back; tests roll everything back
+		frappe.db.commit()  # nosemgrep
 
 
 def _hub_error(response) -> str:

@@ -6,6 +6,7 @@
 import frappe
 from frappe.desk.query_report import run as run_report
 
+from helpdesk_client.mcp.access_control import check_doctype_access
 from helpdesk_client.mcp.tools import register_tool
 from helpdesk_client.utils import get_settings_limit
 
@@ -18,6 +19,19 @@ def execute_report(report_name: str, filters=None, limit: int = 100, **_kwargs) 
 	"""Execute a Frappe report and return columns + rows."""
 	max_limit = get_settings_limit("max_report_rows", 500, REPORT_ROWS_CEILING)
 	limit = min(int(limit), max_limit)
+
+	# A report reads its reference doctype, so that doctype's MCP access applies. A Custom
+	# Report runs the report it refers to, so every report down that chain is checked.
+	name, seen = report_name, set()
+	while name and name not in seen:
+		seen.add(name)
+		report = frappe.db.get_value(
+			"Report", name, ["ref_doctype", "report_type", "reference_report"], as_dict=True
+		)
+		if not report or not report.ref_doctype:
+			frappe.throw(f"Report {name} not found", frappe.DoesNotExistError)
+		check_doctype_access(report.ref_doctype)
+		name = report.reference_report if report.report_type == "Custom Report" else None
 
 	result = run_report(report_name, filters=frappe.as_json(filters) if filters else None)
 

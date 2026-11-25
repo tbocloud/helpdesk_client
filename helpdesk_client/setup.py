@@ -24,9 +24,12 @@ def after_install():
 
 
 def after_uninstall():
-	"""Disable the support user."""
+	"""Disable the support user and revoke the hub's keys."""
+	from helpdesk_client.api import revoke_support_keys
+
 	support_user = get_support_user()
 	if frappe.db.exists("User", support_user):
+		revoke_support_keys()
 		frappe.db.set_value("User", support_user, "enabled", 0)
 		frappe.db.commit()  # install hook: keep each setup step even if a later one fails - nosemgrep
 		print(f"Disabled user {support_user}")
@@ -76,6 +79,9 @@ def _create_default_settings():
 		for dt in DEFAULT_BLOCKED_DOCTYPES:
 			settings.append("blocked_doctypes", {"doctype_name": dt})
 
+	# a new connection keeps HR and payroll private until this site's System Manager opens them (Phase 23 B16)
+	settings.block_hr_payroll = 1
+
 	if not settings.max_list_limit:
 		settings.max_list_limit = 100
 
@@ -93,3 +99,45 @@ def create_genie_folder():
 	f.is_folder = 1
 	f.folder = "Home"
 	f.insert(ignore_if_duplicate=True)
+
+
+def make_recordings_private() -> list[str]:
+	"""Recordings and screenshots attached to tickets as public files become private: saving the File with
+	is_private moves it under /private/files, and the ticket's recording link follows. Run once by the
+	v15_0_3 patch (in the patch's own transaction) and then daily by the scheduler, never inside a
+	migrate's other work: a file that could not be moved (a permission error on disk, a name already
+	taken) is rolled back, logged and tried again the next day, and never stops a migrate, which on a
+	customer's site is their deploy. Returns the files still public."""
+	files = frappe.get_all(
+		"File",
+		filters={"attached_to_doctype": "Support Ticket", "is_private": 0},
+		fields=["name", "file_url"],
+	)
+	if not files:
+		return []
+	# whatever was done before stays done: a rollback below undoes only one file's own change
+	frappe.db.commit()  # nosemgrep
+	failed = []
+	for row in files:
+		try:
+			doc = frappe.get_doc("File", row.name)
+			doc.is_private = 1
+			doc.save(ignore_permissions=True)
+			if doc.file_url != row.file_url:
+				frappe.db.set_value(
+					"Support Ticket",
+					{"screen_recording": row.file_url},
+					"screen_recording",
+					doc.file_url,
+					update_modified=False,
+				)
+		except Exception as e:
+			# this file's change, and its move on disk with it (Frappe moves it back after a rollback)
+			frappe.db.rollback()
+			if isinstance(e, FileNotFoundError):
+				continue  # gone from disk: nothing is left that anyone could read
+			frappe.log_error(f"Could not make recording {row.name} private")
+			failed.append(row.name)
+		# each file moved is kept with its record, whatever happens to the next one
+		frappe.db.commit()  # nosemgrep
+	return failed

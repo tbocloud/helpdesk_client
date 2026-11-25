@@ -34,3 +34,8 @@ def get_session_user(session_id: str):
 	if not session_id:
 		return None
 	return get_cache().get_value(f"{SESSION_PREFIX}{session_id}")
+
+
+def clear_sessions() -> None:
+	"""End every MCP session, for example when the hub's keys are revoked."""
+	get_cache().delete_keys(f"{SESSION_PREFIX}*")

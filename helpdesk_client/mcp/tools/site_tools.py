@@ -29,7 +29,7 @@ def get_site_info(**_kwargs) -> str:
 		"installed_apps": frappe.get_installed_apps(),
 		"default_language": frappe.db.get_default("lang") or "en",
 		"time_zone": frappe.db.get_default("time_zone") or "UTC",
-		"scheduler_enabled": bool(frappe.utils.scheduler.is_scheduler_inactive()),
+		"scheduler_enabled": not frappe.utils.scheduler.is_scheduler_inactive(),
 	}
 	return frappe.as_json(info, indent=2)
 

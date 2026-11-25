@@ -145,6 +145,14 @@ doc_events = {
 
 permission_query_conditions = {
 	"Support Ticket": "helpdesk_client.helpdesk_client.doctype.support_ticket.support_ticket.get_permission_query_conditions",
+	"Support Conversation": "helpdesk_client.helpdesk_client.doctype.support_conversation.support_conversation.get_permission_query_conditions",
+	"Support Conversation Message": "helpdesk_client.helpdesk_client.doctype.support_conversation_message.support_conversation_message.get_permission_query_conditions",
+}
+
+has_permission = {
+	"Support Ticket": "helpdesk_client.helpdesk_client.doctype.support_ticket.support_ticket.has_permission",
+	"Support Conversation": "helpdesk_client.helpdesk_client.doctype.support_conversation.support_conversation.has_permission",
+	"Support Conversation Message": "helpdesk_client.helpdesk_client.doctype.support_conversation_message.support_conversation_message.has_permission",
 }
 
 # Document Events
@@ -166,8 +174,16 @@ permission_query_conditions = {
 # qcs_support_hub.ticket_puller), so nothing polls the Hub. The only job is
 # local housekeeping: session replays of long-finished tickets are deleted.
 scheduler_events = {
+	"hourly": [
+		# tickets TBO Support has not picked up an hour after they were raised: told once to the site's admins
+		"helpdesk_client.inbox.report_waiting_tickets",
+	],
 	"daily": [
 		"helpdesk_client.utils.session_replay.delete_expired_session_replays",
+		# a fix waiting for the user's check is brought up every 3 days (Phase 13)
+		"helpdesk_client.inbox.remind_unconfirmed",
+		# a ticket recording the patch could not make private is tried again, in a job of its own
+		"helpdesk_client.setup.make_recordings_private",
 	],
 }
 
@@ -228,8 +244,7 @@ before_tests = "helpdesk_client.tests.bootstrap.before_tests"
 
 # Request Events
 # ----------------
-# OAuth discovery interceptor for /.well-known/oauth-authorization-server (needed for v15)
-before_request = ["helpdesk_client.mcp.oauth.before_request_handler"]
+before_request = ["helpdesk_client.hub_gate.before_request"]
 # after_request = ["helpdesk_client.utils.after_request"]
 
 # Job Events

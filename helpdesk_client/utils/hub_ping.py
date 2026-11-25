@@ -13,6 +13,8 @@ PING_TIMEOUT = 10
 
 def notify_hub(doc, method=None):
 	"""Support Ticket after_insert: ping the hub once the ticket is committed."""
+	if (getattr(doc, "flags", None) or {}).get("from_chat"):
+		return  # the chat raised it on the hub already
 	settings = frappe.get_cached_doc("HDS Support Settings")
 	if not (settings.enabled and settings.client_id and settings.qcs_hub_url):
 		return

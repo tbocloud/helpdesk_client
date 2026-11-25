@@ -3,15 +3,23 @@
 
 """MCP request authentication.
 
-Supports three auth methods:
-1. Token auth: Authorization: Token <api_key>:<api_secret> (Frappe API keys)
-2. Bearer with API keys: Authorization: Bearer <api_key>:<api_secret> (from mcp-remote)
-3. Bearer OAuth: Authorization: Bearer <oauth_token> (from Claude Web App via Frappe OAuth)
+Two header forms are accepted, both carrying the Frappe API key pair of the
+hub's support user:
+1. Authorization: Token <api_key>:<api_secret>
+2. Authorization: Bearer <api_key>:<api_secret> (what mcp-remote sends)
+
+Only the configured support user, or a user holding the hub role, may use
+the MCP endpoint. Any other user's keys are refused even when valid, so a
+leaked key of an ordinary user never opens the support tools.
 """
 
 import frappe
 from frappe import _
 from frappe.utils.password import get_decrypted_password
+
+from helpdesk_client.support_user import get_support_user
+
+HUB_ROLE = "TBO Support Hub"
 
 
 def authenticate_request():
@@ -31,16 +39,9 @@ def authenticate_request():
 	auth_type = parts[0].lower()
 	credentials = parts[1]
 
-	if auth_type == "token":
-		return _authenticate_token(credentials)
-	elif auth_type == "bearer":
-		# Try API key format first (key:secret), then OAuth token
-		if ":" in credentials:
-			return _authenticate_token(credentials)
-		else:
-			return _authenticate_oauth_bearer(credentials)
-	else:
+	if auth_type not in ("token", "bearer"):
 		frappe.throw(_("Unsupported auth type: {0}").format(auth_type), frappe.AuthenticationError)
+	return _authenticate_token(credentials)
 
 
 def _authenticate_token(credentials):
@@ -58,36 +59,13 @@ def _authenticate_token(credentials):
 	if not stored_secret or api_secret != stored_secret:
 		frappe.throw(_("Invalid API secret"), frappe.AuthenticationError)
 
+	if not is_hub_user(user):
+		frappe.throw(_("This API key may not use the support endpoint"), frappe.AuthenticationError)
+
 	frappe.set_user(user)  # runs only after the api_key/secret pair is verified - nosemgrep
 	return user
 
 
-def _authenticate_oauth_bearer(token):
-	"""Authenticate using an OAuth Bearer token from Frappe's OAuth provider.
-
-	Looks up the token in Frappe's OAuth Bearer Token table.
-	"""
-	try:
-		token_doc = frappe.db.get_value(
-			"OAuth Bearer Token",
-			{"access_token": token, "status": "Active"},
-			["user", "expiration_time"],
-			as_dict=True,
-		)
-
-		if not token_doc:
-			frappe.throw(_("Invalid or expired OAuth token"), frappe.AuthenticationError)
-
-		# Check expiry
-		from frappe.utils import now_datetime
-
-		if token_doc.expiration_time and now_datetime() > token_doc.expiration_time:
-			frappe.throw(_("OAuth token expired"), frappe.AuthenticationError)
-
-		frappe.set_user(token_doc.user)  # runs only for an active, unexpired OAuth token - nosemgrep
-		return token_doc.user
-
-	except frappe.AuthenticationError:
-		raise
-	except Exception as e:
-		frappe.throw(_("OAuth authentication failed: {0}").format(str(e)), frappe.AuthenticationError)
+def is_hub_user(user: str) -> bool:
+	"""Whether `user` is the hub's support user or holds the hub role."""
+	return user == get_support_user() or HUB_ROLE in frappe.get_roles(user)

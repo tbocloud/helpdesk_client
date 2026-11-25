@@ -20,7 +20,13 @@ from helpdesk_client.support_user import (
 
 class TestSupportUser(FrappeTestCase):
 	def setUp(self):
+		self.addCleanup(frappe.clear_document_cache, "HDS Support Settings", "HDS Support Settings")
 		self.addCleanup(frappe.db.rollback)
+		# the patch under test creates the support user, which commits: held, or a test run on a paired
+		# site commits a cleared Client ID and the default hub URL over the real pairing
+		commit = patch.object(frappe.db, "commit")
+		commit.start()
+		self.addCleanup(commit.stop)
 
 	def set(self, **values):
 		for field, value in values.items():
