@@ -5,6 +5,7 @@ frappe.ui.form.on("Support Ticket", {
 	refresh(frm) {
 		genie_ticket.render_stage(frm);
 		genie_ticket.render_updates(frm);
+		genie_ticket.render_recent_errors(frm);
 		genie_ticket.add_buttons(frm);
 		if (!frm.is_new() && frappe.boot.genie_chat_enabled) {
 			// every ticket is a chat (TBO Copilot Phase 13)
@@ -33,6 +34,34 @@ const genie_ticket = {
 
 	method(name) {
 		return `helpdesk_client.helpdesk_client.doctype.support_ticket.support_ticket.${name}`;
+	},
+
+	// The raiser's own recent errors. Recent Errors itself is for System Managers only: a follower
+	// reads the rest of the ticket, and the errors may be about another part of the business.
+	render_recent_errors(frm) {
+		const field = frm.get_field("recent_errors_html");
+		if (!field) return;
+		const raw = frm.doc.__onload && frm.doc.__onload.recent_errors;
+		let errors = [];
+		try {
+			errors = raw ? JSON.parse(raw) : [];
+		} catch (e) {
+			errors = [{ error: raw }];
+		}
+		const shown = Array.isArray(errors) && errors.length;
+		frm.toggle_display("recent_errors_html", Boolean(shown));
+		if (!shown) return;
+		const esc = frappe.utils.escape_html;
+		const rows = errors
+			.map((row) => {
+				const where = [row.at, row.method, row.reference].filter(Boolean).join(" · ");
+				return `<div class="mb-2"><div class="text-muted small">${esc(where)}</div>
+					<pre class="small mb-0">${esc(row.error || "")}</pre></div>`;
+			})
+			.join("");
+		field.$wrapper.html(
+			`<label class="control-label">${esc(__("Your Recent Errors"))}</label>${rows}`
+		);
 	},
 
 	// The stage banner: where TBO Support is, in the customer's words.
