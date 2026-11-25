@@ -109,6 +109,9 @@ def update_ticket(name: str, values: dict | str) -> dict:
 		if _set(doc, field, value):
 			applied.append(field)
 	applied = list(dict.fromkeys(applied))
+	if "stage" in applied and doc.stage == "Resolved":
+		# only a stage that changed counts: a retry with the same stage applies nothing
+		_ask_again_for_a_new_fix(doc)
 	if applied:
 		doc.flags.from_hub = True
 		doc.save(ignore_permissions=True)
@@ -172,16 +175,21 @@ def add_update(
 		return {"ok": True, "duplicate": True}
 	doc.append("updates", _row(hub_ref, kind, stage, message, author_name))
 	if kind == "Stage":
-		if stage == "Resolved" and _asks_again(doc):
-			# a new fix: "Is it fixed?" again, even when the status did not move (an answer given before
-			# this was about the earlier fix), and its reminders start over
-			doc.last_synced = now_datetime()
-			doc.confirmation_reminded_at = None
+		if stage == "Resolved":
+			_ask_again_for_a_new_fix(doc)
 		doc.stage = stage
 		doc.stage_message = (message or "")[:2000]
 	doc.flags.from_hub = True
 	doc.save(ignore_permissions=True)
 	return {"ok": True, "duplicate": False}
+
+
+def _ask_again_for_a_new_fix(doc) -> None:
+	"""A new Resolved, from either hub endpoint: "Is it fixed?" again, even when the status did not move
+	(an answer given before this was about the earlier fix), and its reminders start over."""
+	if _asks_again(doc):
+		doc.last_synced = now_datetime()
+		doc.confirmation_reminded_at = None
 
 
 def _asks_again(doc) -> bool:

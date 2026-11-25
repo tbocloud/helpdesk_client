@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import now_datetime
 
 from helpdesk_client.helpdesk_client.doctype.support_ticket import support_ticket as api
 from helpdesk_client.patches.v15_0_4 import backfill_raised_by_email
@@ -155,6 +156,41 @@ class TestAskedAgainAfterEveryResolved(StageCase):
 		frappe.set_user(RAISER)
 		self.assertEqual(api.confirm_resolution(doc.name)["confirmation"], "Confirmed")
 		self.assertFalse(self.form(doc, RAISER)["confirm"])
+
+	def hub_sets(self, doc, **values):
+		from helpdesk_client import hub_api
+		from helpdesk_client.support_user import get_support_user
+		from helpdesk_client.tests.test_hub_api import ensure_user
+
+		frappe.set_user(ensure_user(get_support_user(), roles=("System Manager",)))
+		try:
+			with patch.object(api, "notify_action_needed"), patch.object(api, "notify_stage_change"):
+				return hub_api.update_ticket(doc.name, values)
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_a_resolved_stage_through_update_ticket_asks_again_once(self):
+		doc = make_ticket(ticket_id="0044", status="Resolved", stage="Resolved")
+		frappe.set_user(RAISER)
+		api.reopen(doc.name, "The total is still wrong")
+		self.assertFalse(self.form(doc, RAISER)["confirm"])
+
+		# TBO Support works on it and fixes it again, moving only the stage (the status stays Resolved)
+		self.hub_sets(doc, stage="Working on it")
+		self.assertFalse(self.form(doc, RAISER)["confirm"])
+		self.assertEqual(self.hub_sets(doc, stage="Resolved")["applied"], ["stage"])
+		again = self.form(doc, RAISER)
+		self.assertTrue(again["confirm"], "the new fix did not ask again")
+		self.assertFalse(again["answered"])
+
+		# a retry applies nothing: neither the answer nor the reminder clock starts over
+		frappe.db.set_value(
+			"Support Ticket", doc.name, "confirmation_reminded_at", now_datetime(), update_modified=False
+		)
+		fields = ["last_synced", "confirmation_reminded_at"]
+		before = frappe.db.get_value("Support Ticket", doc.name, fields)
+		self.assertEqual(self.hub_sets(doc, stage="Resolved")["applied"], [])
+		self.assertEqual(frappe.db.get_value("Support Ticket", doc.name, fields), before)
 
 	def test_a_late_resolved_does_not_undo_a_fresh_confirmation(self):
 		doc = make_ticket(ticket_id="0043", status="Resolved", stage="Working on it")
