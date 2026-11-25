@@ -20,7 +20,9 @@ RESOLVED_STATUSES = ("Resolved", "Closed")
 class SupportTicket(Document):
 	def onload(self):
 		"""What the form asks (Phase 23 B7): Confirm and Still broken after every Resolved, as the chat does,
-		for the one who raised it; and whether their last answer still stands."""
+		for the one who raised it; and whether their last answer still stands. The raiser also gets their
+		own recent errors here: the field itself is for System Managers only (permlevel 1), since a
+		follower reads the rest of the ticket and the errors may be about another part of the business."""
 		now = inbox.state(self)
 		self.set_onload(
 			"genie",
@@ -30,6 +32,8 @@ class SupportTicket(Document):
 				"closed": now["closed"],
 			},
 		)
+		if is_raiser(self) and not self.has_permlevel_access_to("error_logs", permission_type="read"):
+			self.set_onload("recent_errors", self.error_logs or "")
 
 	def on_update(self):
 		"""Notify the reporter when the status or the stage changes.

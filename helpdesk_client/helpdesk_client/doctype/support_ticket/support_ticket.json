@@ -48,6 +48,7 @@
   "column_break_context",
   "user_roles",
   "error_logs",
+  "recent_errors_html",
   "code_identity",
   "followers_section",
   "followers"
@@ -333,7 +334,14 @@
    "fieldname": "error_logs",
    "fieldtype": "Long Text",
    "label": "Recent Errors",
-   "read_only": 1
+   "read_only": 1,
+   "permlevel": 1,
+   "description": "Only System Managers read this: the raiser's errors may come from another part of the business, and followers read the rest of the ticket. The raiser sees their own under Your Recent Errors."
+  },
+  {
+   "fieldname": "recent_errors_html",
+   "fieldtype": "HTML",
+   "label": "Your Recent Errors"
   },
   {
    "fieldname": "code_identity",
@@ -357,7 +365,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-11-23 12:30:00.000000",
+ "modified": "2026-11-25 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Helpdesk Client",
  "name": "Support Ticket",
@@ -379,6 +387,12 @@
   {
    "read": 1,
    "role": "Desk User"
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
   }
  ],
  "sort_field": "modified",
